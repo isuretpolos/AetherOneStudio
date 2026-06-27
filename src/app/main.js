@@ -19,6 +19,7 @@ const propertiesForm = document.querySelector("#propertiesForm");
 const elementId = document.querySelector("#elementId");
 const elementLabel = document.querySelector("#elementLabel");
 const elementType = document.querySelector("#elementType");
+const behaviorAction = document.querySelector("#behaviorAction");
 const providesPower = document.querySelector("#providesPower");
 const requiresPower = document.querySelector("#requiresPower");
 const requiresWell = document.querySelector("#requiresWell");
@@ -63,6 +64,7 @@ const state = {
     mode: "idle",
     events: [],
     blockedCount: 0,
+    completed: {},
   },
   history: {
     undo: [],
@@ -136,6 +138,7 @@ propertiesForm.addEventListener("input", (event) => {
     selected.behavior = createDefaultBehavior(selected.type, selected);
   } else {
     selected.behavior = selected.behavior || createDefaultBehavior(selected.type, selected);
+    selected.behavior.action = behaviorAction.value;
     selected.behavior.providesPower = providesPower.checked;
     selected.behavior.requiresPower = requiresPower.checked;
     selected.behavior.requiresWell = requiresWell.checked;
@@ -614,7 +617,7 @@ function renderProperties() {
   [elementId, elementLabel, elementType].forEach((input) => {
     input.disabled = disabled;
   });
-  [providesPower, requiresPower, requiresWell, valueStep].forEach((input) => {
+  [behaviorAction, providesPower, requiresPower, requiresWell, valueStep].forEach((input) => {
     input.disabled = disabled;
   });
   deleteButton.disabled = disabled;
@@ -623,6 +626,7 @@ function renderProperties() {
   elementLabel.value = selected?.label || "";
   elementType.value = selected?.type || "button";
   const behavior = selected?.behavior || createDefaultBehavior(selected?.type || "button", selected);
+  behaviorAction.value = behavior.action || "default";
   providesPower.checked = Boolean(behavior.providesPower);
   requiresPower.checked = Boolean(behavior.requiresPower);
   requiresWell.checked = Boolean(behavior.requiresWell);
@@ -747,6 +751,10 @@ function validateDevice() {
     messages.push("Add a well element for actions that require loaded well content.");
   }
 
+  if (state.elements.some((element) => getBehaviorAction(element) !== "default") && !getPowerProvider()) {
+    messages.push("Add a power provider for operation-oriented simulation.");
+  }
+
   ids.forEach((count, id) => {
     if (id && count > 1) {
       messages.push(`Duplicate element ID: ${id}.`);
@@ -778,7 +786,20 @@ function triggerElement(element) {
     return;
   }
 
-  if (element.type === "toggle") {
+  const operationHandled = applyBehaviorAction(element);
+
+  if (operationHandled) {
+    // Operation elements can still show their type state, but the operation log is the primary event.
+    if (element.type === "toggle" || element.type === "led") {
+      element.runtime.on = !element.runtime.on;
+    } else if (element.type === "display") {
+      element.runtime.text = getRuntimeSummary(element).toUpperCase();
+    } else if (typeof element.runtime.value === "number") {
+      element.runtime.value = wrapValue((element.runtime.value || 0) + getBehaviorStep(element), 0, 100);
+    } else if (element.type === "button") {
+      element.runtime.presses = (element.runtime.presses || 0) + 1;
+    }
+  } else if (element.type === "toggle") {
     element.runtime.on = !element.runtime.on;
     state.session.mode = element.runtime.on ? "powered" : "idle";
     logEvent(element, element.runtime.on ? "Switched on." : "Switched off.");
@@ -819,17 +840,18 @@ function blockElement(element, reason) {
 }
 
 function evaluateRules(element) {
-  if (element.behavior?.providesPower || state.elements.length === 1) {
+  const action = getBehaviorAction(element);
+  if (element.behavior?.providesPower || (state.elements.length === 1 && action === "default")) {
     return { allowed: true };
   }
 
   const requiresPower = Boolean(element.behavior?.requiresPower);
   const powerToggle = getPowerProvider();
-  if (requiresPower && !powerToggle) {
+  if ((requiresPower || action !== "default") && !powerToggle) {
     return { allowed: false, reason: "No power source is configured." };
   }
 
-  if (requiresPower && !powerToggle.runtime?.on) {
+  if ((requiresPower || action !== "default") && !powerToggle.runtime?.on) {
     return { allowed: false, reason: "Power is off." };
   }
 
@@ -838,6 +860,14 @@ function evaluateRules(element) {
   const requiresWell = Boolean(element.behavior?.requiresWell);
   if (requiresWell && hasAnyWell && !hasLoadedWell) {
     return { allowed: false, reason: "Load a well before this operation." };
+  }
+
+  if (action === "broadcast" && state.session.mode === "diagnosis") {
+    return { allowed: false, reason: "Broadcast is blocked during diagnosis." };
+  }
+
+  if (action === "neutralize" && state.session.mode !== "broadcasting" && !state.session.completed.broadcast) {
+    return { allowed: false, reason: "Start or complete broadcast before neutralizing." };
   }
 
   if (state.session.mode === "blocked") {
@@ -859,7 +889,7 @@ function logEvent(element, detail, kind = "info") {
 }
 
 function resetSession() {
-  state.session = { mode: "idle", events: [], blockedCount: 0 };
+  state.session = { mode: "idle", events: [], blockedCount: 0, completed: {} };
   state.elements.forEach((element) => {
     element.runtime = createRuntimeState(element.type);
     delete element.flashUntil;
@@ -894,8 +924,55 @@ function createDefaultBehavior(type, element = null, hasPowerProvider = Boolean(
     providesPower,
     requiresPower: !providesPower,
     requiresWell: type === "button" || type === "meter" || type === "resonance",
+    action: "default",
     step: getDefaultStep(type),
   };
+}
+
+function getBehaviorAction(element) {
+  return element.behavior?.action || "default";
+}
+
+function applyBehaviorAction(element) {
+  const action = getBehaviorAction(element);
+  if (action === "default") return false;
+
+  if (action === "scan") {
+    state.session.mode = "scanning";
+    logEvent(element, "Scan started.");
+    return true;
+  }
+
+  if (action === "diagnosis") {
+    state.session.mode = "diagnosis";
+    logEvent(element, "Diagnosis mode active.");
+    return true;
+  }
+
+  if (action === "broadcast") {
+    state.session.mode = state.session.mode === "broadcasting" ? "powered" : "broadcasting";
+    if (state.session.mode === "powered") {
+      state.session.completed.broadcast = true;
+      logEvent(element, "Broadcast completed.");
+    } else {
+      logEvent(element, "Broadcast started.");
+    }
+    return true;
+  }
+
+  if (action === "neutralize") {
+    state.session.mode = "neutralizing";
+    state.session.completed.neutralize = true;
+    logEvent(element, "Neutralize sequence started.");
+    return true;
+  }
+
+  if (action === "custom") {
+    logEvent(element, "Custom event triggered.");
+    return true;
+  }
+
+  return false;
 }
 
 function getPowerProvider(except = null) {

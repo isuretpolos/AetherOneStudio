@@ -95,6 +95,17 @@
             </label>
             <fieldset class="behavior-options">
               <legend>Behavior</legend>
+              <label>
+                Operation
+                <select id="behaviorAction" name="behaviorAction" disabled>
+                  <option value="default">Default interaction</option>
+                  <option value="scan">Scan</option>
+                  <option value="diagnosis">Diagnosis</option>
+                  <option value="broadcast">Broadcast</option>
+                  <option value="neutralize">Neutralize</option>
+                  <option value="custom">Custom event</option>
+                </select>
+              </label>
               <label class="checkbox-label">
                 <input id="providesPower" name="providesPower" type="checkbox" disabled />
                 Provides power
