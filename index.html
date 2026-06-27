@@ -217,9 +217,25 @@
         <div id="canvasHost" class="canvas-host">
           <canvas id="deviceCanvas" width="1280" height="860"></canvas>
         </div>
+
+        <section class="script-panel" aria-label="Behavior script editor">
+          <div class="script-editor-header">
+            <h2>Behavior Script</h2>
+            <span id="scriptEditorStatus">Select an element to edit its script.</span>
+          </div>
+          <div id="monacoEditor" class="monaco-editor-host" aria-hidden="true"></div>
+          <textarea
+            id="scriptFallback"
+            class="script-fallback"
+            spellcheck="false"
+            disabled
+            placeholder="Select an element to edit its behavior script."
+          ></textarea>
+        </section>
       </section>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
     <script src="src/app/main.js" type="module"></script>
   </body>
 </html>

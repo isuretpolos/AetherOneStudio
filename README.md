@@ -388,6 +388,7 @@ Open `index.html` in a browser to try the first editor slice:
 * Element ID, optional label, and type editing
 * Per-element simulation value display toggle
 * Fast element copying and mouse-position paste with grouped ID numbering
+* Monaco-backed behavior script editor with textarea fallback
 * Rotary knob min, max, step, and arc configuration
 * Optional rotary knob background-graphic rotation
 * Optional toggle switch background-graphic mirroring

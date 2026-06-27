@@ -45,6 +45,11 @@ const zoomOutButton = document.querySelector("#zoomOutButton");
 const zoomFitButton = document.querySelector("#zoomFitButton");
 const zoomActualButton = document.querySelector("#zoomActualButton");
 const zoomInButton = document.querySelector("#zoomInButton");
+const monacoEditorHost = document.querySelector("#monacoEditor");
+const scriptFallback = document.querySelector("#scriptFallback");
+const scriptEditorStatus = document.querySelector("#scriptEditorStatus");
+
+const MONACO_VS_BASE = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs";
 
 const state = {
   mode: "edit",
@@ -84,6 +89,11 @@ const state = {
     redo: [],
     dirty: false,
     restoring: false,
+  },
+  scriptEditor: {
+    monaco: null,
+    suppressChange: false,
+    usingMonaco: false,
   },
 };
 
@@ -127,8 +137,15 @@ canvas.addEventListener("pointerleave", onPointerUp);
 canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
 canvas.addEventListener("contextmenu", onCanvasContextMenu);
 canvas.addEventListener("dblclick", finishPolygon);
-window.addEventListener("resize", updateCanvasScale);
+window.addEventListener("resize", () => {
+  updateCanvasScale();
+  layoutScriptEditor();
+});
 window.addEventListener("keydown", onKeyDown);
+scriptFallback.addEventListener("input", () => {
+  if (state.scriptEditor.usingMonaco || state.scriptEditor.suppressChange) return;
+  updateSelectedBehaviorScript(scriptFallback.value);
+});
 
 manifestForm.addEventListener("input", () => {
   commitHistory();
@@ -812,6 +829,7 @@ function renderProperties() {
   valueMax.disabled = disabled || !usesRangeValue(selected?.type);
   arcMin.disabled = disabled || selected?.type !== "knob";
   arcMax.disabled = disabled || selected?.type !== "knob";
+  renderScriptEditor();
 }
 
 function renderManifest() {
@@ -822,10 +840,90 @@ function renderManifest() {
   projectDescription.value = manifest.description;
 }
 
+function initScriptEditor() {
+  if (!window.require) {
+    scriptEditorStatus.textContent = "Monaco unavailable. Using textarea fallback.";
+    renderScriptEditor();
+    return;
+  }
+
+  window.MonacoEnvironment = {
+    getWorkerUrl() {
+      const workerSource = `self.MonacoEnvironment={baseUrl:'${MONACO_VS_BASE}/'};importScripts('${MONACO_VS_BASE}/base/worker/workerMain.js');`;
+      return `data:text/javascript;charset=utf-8,${encodeURIComponent(workerSource)}`;
+    },
+  };
+  window.require.config({ paths: { vs: MONACO_VS_BASE } });
+  window.require(
+    ["vs/editor/editor.main"],
+    () => {
+      state.scriptEditor.monaco = window.monaco.editor.create(monacoEditorHost, {
+        value: "",
+        language: "typescript",
+        theme: "vs-dark",
+        automaticLayout: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        fontSize: 13,
+        tabSize: 2,
+        wordWrap: "on",
+        readOnly: true,
+      });
+      state.scriptEditor.usingMonaco = true;
+      monacoEditorHost.classList.add("is-ready");
+      monacoEditorHost.setAttribute("aria-hidden", "false");
+      scriptFallback.classList.add("is-hidden");
+      state.scriptEditor.monaco.onDidChangeModelContent(() => {
+        if (state.scriptEditor.suppressChange) return;
+        updateSelectedBehaviorScript(state.scriptEditor.monaco.getValue());
+      });
+      renderScriptEditor();
+    },
+    () => {
+      scriptEditorStatus.textContent = "Monaco failed to load. Using textarea fallback.";
+      renderScriptEditor();
+    },
+  );
+}
+
+function renderScriptEditor() {
+  const selected = getSelectedElement();
+  const script = selected?.behavior?.script || "";
+  state.scriptEditor.suppressChange = true;
+
+  if (state.scriptEditor.monaco) {
+    if (state.scriptEditor.monaco.getValue() !== script) {
+      state.scriptEditor.monaco.setValue(script);
+    }
+    state.scriptEditor.monaco.updateOptions({ readOnly: !selected });
+  }
+
+  scriptFallback.value = script;
+  scriptFallback.disabled = !selected;
+  scriptFallback.placeholder = selected ? "Write TypeScript or JavaScript behavior for the selected element." : "Select an element to edit its behavior script.";
+  scriptEditorStatus.textContent = selected ? `${selected.id} behavior script` : "Select an element to edit its script.";
+  state.scriptEditor.suppressChange = false;
+}
+
+function updateSelectedBehaviorScript(script) {
+  const selected = getSelectedElement();
+  if (!selected) return;
+
+  commitHistory();
+  selected.behavior = selected.behavior || createDefaultBehavior(selected.type, selected);
+  selected.behavior.script = script;
+  scriptFallback.value = script;
+}
+
+function layoutScriptEditor() {
+  state.scriptEditor.monaco?.layout();
+}
+
 function refreshEditor() {
   renderManifest();
   render();
   renderProperties();
+  renderScriptEditor();
   renderElementList();
   renderValidation();
   renderSession();
@@ -1137,6 +1235,7 @@ function createDefaultBehavior(type, element = null, hasPowerProvider = Boolean(
     transformVertical: false,
     showValue: true,
     action: "default",
+    script: "",
     min: getDefaultMin(type),
     max: getDefaultMax(type),
     arcMin: getDefaultArcMin(type),
@@ -1370,6 +1469,7 @@ function normalizeElement(element, hasPowerProvider = Boolean(getPowerProvider()
   const rawBehavior = element.behavior || {};
   const hasExplicitPowerProvider = Object.hasOwn(rawBehavior, "providesPower");
   const behavior = { ...createDefaultBehavior(type, null, hasPowerProvider), ...rawBehavior };
+  behavior.script = typeof behavior.script === "string" ? behavior.script : "";
   if (usesRangeValue(type)) {
     normalizeValueRange(behavior);
     normalizeArcRange(behavior);
@@ -1968,3 +2068,4 @@ renderElementList();
 renderValidation();
 renderSession();
 updateHistoryControls();
+initScriptEditor();
