@@ -392,6 +392,8 @@ Open `index.html` in a browser to try the first editor slice:
 * Simulation session panel with reset and event history
 * Element-specific simulation behavior for buttons, toggles, knobs, sliders, wells, LEDs, meters, displays, and resonance indicators
 * Basic simulation rule blocking with visible rejected events, blocked counters, and power/well prerequisites
+* Per-element behavior options for power requirements, loaded-well requirements, and numeric simulation step size
+* Project manifest editing for name, author, version, and description
 * Project JSON import and export
 
 The intended production stack remains Tauri + Angular + TypeScript + Konva.js. This initial prototype keeps the UX and data model moving while the desktop scaffold is prepared.

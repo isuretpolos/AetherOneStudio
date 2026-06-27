@@ -19,6 +19,26 @@
 
         <section class="panel">
           <h2>Project</h2>
+          <form id="manifestForm" class="properties manifest-form">
+            <label>
+              Name
+              <input id="projectName" name="name" type="text" />
+            </label>
+            <div class="two-column-fields">
+              <label>
+                Author
+                <input id="projectAuthor" name="author" type="text" />
+              </label>
+              <label>
+                Version
+                <input id="projectVersion" name="version" type="text" />
+              </label>
+            </div>
+            <label>
+              Description
+              <textarea id="projectDescription" name="description" rows="3"></textarea>
+            </label>
+          </form>
           <label class="file-button">
             Import image
             <input id="imageInput" type="file" accept="image/*" />
@@ -68,6 +88,21 @@
                 <option value="resonance">Resonance indicator</option>
               </select>
             </label>
+            <fieldset class="behavior-options">
+              <legend>Behavior</legend>
+              <label class="checkbox-label">
+                <input id="requiresPower" name="requiresPower" type="checkbox" disabled />
+                Requires power
+              </label>
+              <label class="checkbox-label">
+                <input id="requiresWell" name="requiresWell" type="checkbox" disabled />
+                Requires loaded well
+              </label>
+              <label>
+                Step
+                <input id="valueStep" name="valueStep" type="number" min="1" max="100" step="1" disabled />
+              </label>
+            </fieldset>
           </form>
         </section>
 

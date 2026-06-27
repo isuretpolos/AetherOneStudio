@@ -7,10 +7,18 @@ const exportButton = document.querySelector("#exportButton");
 const deleteButton = document.querySelector("#deleteButton");
 const statusText = document.querySelector("#statusText");
 const elementList = document.querySelector("#elementList");
+const manifestForm = document.querySelector("#manifestForm");
+const projectName = document.querySelector("#projectName");
+const projectAuthor = document.querySelector("#projectAuthor");
+const projectVersion = document.querySelector("#projectVersion");
+const projectDescription = document.querySelector("#projectDescription");
 const propertiesForm = document.querySelector("#propertiesForm");
 const elementId = document.querySelector("#elementId");
 const elementLabel = document.querySelector("#elementLabel");
 const elementType = document.querySelector("#elementType");
+const requiresPower = document.querySelector("#requiresPower");
+const requiresWell = document.querySelector("#requiresWell");
+const valueStep = document.querySelector("#valueStep");
 const validationList = document.querySelector("#validationList");
 const resetSessionButton = document.querySelector("#resetSessionButton");
 const sessionMode = document.querySelector("#sessionMode");
@@ -30,6 +38,13 @@ const state = {
   backgroundSrc: "src/docs/prototype.jpg",
   backgroundExportSrc: "src/docs/prototype.jpg",
   backgroundExportPromise: null,
+  manifest: {
+    name: "AetherOne Studio Device",
+    author: "",
+    version: "0.1.0",
+    formatVersion: 1,
+    description: "",
+  },
   background: new Image(),
   backgroundObjectUrl: null,
   elements: [],
@@ -86,6 +101,14 @@ canvas.addEventListener("dblclick", finishPolygon);
 window.addEventListener("resize", updateCanvasScale);
 window.addEventListener("keydown", onKeyDown);
 
+manifestForm.addEventListener("input", () => {
+  state.manifest.name = projectName.value.trim();
+  state.manifest.author = projectAuthor.value.trim();
+  state.manifest.version = projectVersion.value.trim();
+  state.manifest.description = projectDescription.value.trim();
+  renderValidation();
+});
+
 propertiesForm.addEventListener("input", () => {
   const selected = getSelectedElement();
   if (!selected) return;
@@ -96,6 +119,12 @@ propertiesForm.addEventListener("input", () => {
   selected.type = elementType.value;
   if (selected.type !== previousType) {
     selected.runtime = createRuntimeState(selected.type);
+    selected.behavior = createDefaultBehavior(selected.type);
+  } else {
+    selected.behavior = selected.behavior || createDefaultBehavior(selected.type);
+    selected.behavior.requiresPower = requiresPower.checked;
+    selected.behavior.requiresWell = requiresWell.checked;
+    selected.behavior.step = clampNumber(Number(valueStep.value), 1, 100, selected.behavior.step || getDefaultStep(selected.type));
   }
   state.selectedId = selected.id;
   render();
@@ -243,6 +272,7 @@ function addElement(hitArea) {
     hitArea,
     states: shape === "rect" ? ["idle", "active"] : undefined,
     initial: shape === "rect" ? "idle" : undefined,
+    behavior: createDefaultBehavior(elementDefaults[shape] || "button"),
     runtime: createRuntimeState(elementDefaults[shape] || "button"),
   };
   state.elements.push(element);
@@ -381,11 +411,7 @@ async function exportProject() {
   }
 
   const payload = {
-    manifest: {
-      name: "AetherOne Studio Device",
-      version: "0.1.0",
-      formatVersion: 1,
-    },
+    manifest: normalizeManifest(state.manifest),
     background: {
       src: state.backgroundExportSrc,
       width: canvas.width,
@@ -410,11 +436,13 @@ function importProject(event) {
   reader.addEventListener("load", () => {
     try {
       const project = JSON.parse(reader.result);
+      state.manifest = normalizeManifest(project.manifest);
       state.elements = Array.isArray(project.elements) ? project.elements.map(normalizeElement) : [];
       state.selectedId = null;
       state.nextElementNumber = state.elements.length + 1;
       resetSession();
       setBackgroundFromSource(project.background?.src || "src/docs/prototype.jpg", `Imported project: ${file.name}`);
+      renderManifest();
       renderProperties();
       renderElementList();
       renderValidation();
@@ -547,11 +575,27 @@ function renderProperties() {
   [elementId, elementLabel, elementType].forEach((input) => {
     input.disabled = disabled;
   });
+  [requiresPower, requiresWell, valueStep].forEach((input) => {
+    input.disabled = disabled;
+  });
   deleteButton.disabled = disabled;
 
   elementId.value = selected?.id || "";
   elementLabel.value = selected?.label || "";
   elementType.value = selected?.type || "button";
+  const behavior = selected?.behavior || createDefaultBehavior(selected?.type || "button");
+  requiresPower.checked = Boolean(behavior.requiresPower);
+  requiresWell.checked = Boolean(behavior.requiresWell);
+  valueStep.value = behavior.step || getDefaultStep(selected?.type || "button");
+  valueStep.disabled = disabled || !usesStepValue(selected?.type);
+}
+
+function renderManifest() {
+  const manifest = normalizeManifest(state.manifest);
+  projectName.value = manifest.name;
+  projectAuthor.value = manifest.author;
+  projectVersion.value = manifest.version;
+  projectDescription.value = manifest.description;
 }
 
 function renderElementList() {
@@ -620,6 +664,14 @@ function validateDevice() {
     messages.push("Add at least one interactive region.");
   }
 
+  if (!state.manifest.name.trim()) {
+    messages.push("Add a project name before export.");
+  }
+
+  if (!state.manifest.version.trim()) {
+    messages.push("Add a project version before export.");
+  }
+
   state.elements.forEach((element) => {
     const id = element.id.trim();
     ids.set(id, (ids.get(id) || 0) + 1);
@@ -637,12 +689,12 @@ function validateDevice() {
     }
   });
 
-  if (state.elements.length > 0 && !state.elements.some((element) => element.type === "toggle")) {
+  if (state.elements.length > 0 && state.elements.some((element) => element.behavior?.requiresPower) && !state.elements.some((element) => element.type === "toggle")) {
     messages.push("Add a toggle element if this device should require power before operation.");
   }
 
-  if (state.elements.some((element) => element.type === "button") && !state.elements.some((element) => element.type === "well")) {
-    messages.push("Add a well element to simulate witness/content prerequisites for button actions.");
+  if (state.elements.some((element) => element.behavior?.requiresWell) && !state.elements.some((element) => element.type === "well")) {
+    messages.push("Add a well element for actions that require loaded well content.");
   }
 
   ids.forEach((count, id) => {
@@ -684,10 +736,10 @@ function triggerElement(element) {
     element.runtime.hasContent = !element.runtime.hasContent;
     logEvent(element, element.runtime.hasContent ? "Virtual content placed." : "Virtual content removed.");
   } else if (element.type === "knob") {
-    element.runtime.value = wrapValue((element.runtime.value || 0) + 10, 0, 100);
+    element.runtime.value = wrapValue((element.runtime.value || 0) + getBehaviorStep(element), 0, 100);
     logEvent(element, `Value set to ${element.runtime.value}.`);
   } else if (element.type === "slider" || element.type === "meter" || element.type === "resonance") {
-    element.runtime.value = wrapValue((element.runtime.value || 0) + 20, 0, 100);
+    element.runtime.value = wrapValue((element.runtime.value || 0) + getBehaviorStep(element), 0, 100);
     logEvent(element, `Level set to ${element.runtime.value}.`);
   } else if (element.type === "led") {
     element.runtime.on = !element.runtime.on;
@@ -721,14 +773,15 @@ function evaluateRules(element) {
     return { allowed: true };
   }
 
+  const requiresPower = element.behavior?.requiresPower ?? element.type !== "toggle";
   const powerToggle = state.elements.find((candidate) => candidate.type === "toggle");
-  if (powerToggle && !powerToggle.runtime?.on) {
+  if (requiresPower && powerToggle && !powerToggle.runtime?.on) {
     return { allowed: false, reason: "Power is off." };
   }
 
   const hasAnyWell = state.elements.some((candidate) => candidate.type === "well");
   const hasLoadedWell = state.elements.some((candidate) => candidate.type === "well" && candidate.runtime?.hasContent);
-  const requiresWell = element.type === "button" || element.type === "resonance" || element.type === "meter";
+  const requiresWell = Boolean(element.behavior?.requiresWell);
   if (requiresWell && hasAnyWell && !hasLoadedWell) {
     return { allowed: false, reason: "Load a well before this operation." };
   }
@@ -771,12 +824,46 @@ function createRuntimeState(type) {
   return { presses: 0 };
 }
 
+function normalizeManifest(manifest = {}) {
+  return {
+    name: manifest.name || "AetherOne Studio Device",
+    author: manifest.author || "",
+    version: manifest.version || "0.1.0",
+    formatVersion: Number(manifest.formatVersion) || 1,
+    description: manifest.description || "",
+  };
+}
+
+function createDefaultBehavior(type) {
+  return {
+    requiresPower: type !== "toggle",
+    requiresWell: type === "button" || type === "meter" || type === "resonance",
+    step: getDefaultStep(type),
+  };
+}
+
+function getDefaultStep(type) {
+  if (type === "knob") return 10;
+  if (type === "slider" || type === "meter" || type === "resonance") return 20;
+  return 1;
+}
+
+function usesStepValue(type) {
+  return type === "knob" || type === "slider" || type === "meter" || type === "resonance";
+}
+
+function getBehaviorStep(element) {
+  return clampNumber(Number(element.behavior?.step), 1, 100, getDefaultStep(element.type));
+}
+
 function normalizeElement(element) {
+  const type = element.type || "button";
   return {
     ...element,
     label: element.label || element.id || "Element",
-    type: element.type || "button",
-    runtime: createRuntimeState(element.type || "button"),
+    type,
+    behavior: { ...createDefaultBehavior(type), ...(element.behavior || {}) },
+    runtime: createRuntimeState(type),
   };
 }
 
@@ -1022,6 +1109,11 @@ function wrapValue(value, min, max) {
   return value > max ? min : Math.max(min, value);
 }
 
+function clampNumber(value, min, max, fallback) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
 function titleCase(value) {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
@@ -1061,7 +1153,7 @@ function updateCanvasScale() {
 function onKeyDown(event) {
   if (event.key !== "Delete" && event.key !== "Backspace") return;
   const target = event.target;
-  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
   deleteSelected();
 }
 
@@ -1071,6 +1163,7 @@ function releasePointer(event) {
 }
 
 renderProperties();
+renderManifest();
 renderElementList();
 renderValidation();
 renderSession();
