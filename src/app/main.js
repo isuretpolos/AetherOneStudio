@@ -4,6 +4,9 @@ const canvasHost = document.querySelector("#canvasHost");
 const imageInput = document.querySelector("#imageInput");
 const projectInput = document.querySelector("#projectInput");
 const exportButton = document.querySelector("#exportButton");
+const undoButton = document.querySelector("#undoButton");
+const redoButton = document.querySelector("#redoButton");
+const dirtyBadge = document.querySelector("#dirtyBadge");
 const deleteButton = document.querySelector("#deleteButton");
 const statusText = document.querySelector("#statusText");
 const elementList = document.querySelector("#elementList");
@@ -16,6 +19,7 @@ const propertiesForm = document.querySelector("#propertiesForm");
 const elementId = document.querySelector("#elementId");
 const elementLabel = document.querySelector("#elementLabel");
 const elementType = document.querySelector("#elementType");
+const providesPower = document.querySelector("#providesPower");
 const requiresPower = document.querySelector("#requiresPower");
 const requiresWell = document.querySelector("#requiresWell");
 const valueStep = document.querySelector("#valueStep");
@@ -60,6 +64,12 @@ const state = {
     events: [],
     blockedCount: 0,
   },
+  history: {
+    undo: [],
+    redo: [],
+    dirty: false,
+    restoring: false,
+  },
 };
 
 const elementDefaults = {
@@ -90,6 +100,8 @@ zoomActualButton.addEventListener("click", () => setZoom(1));
 zoomInButton.addEventListener("click", () => stepZoom(1));
 resetSessionButton.addEventListener("click", resetSession);
 deleteButton.addEventListener("click", deleteSelected);
+undoButton.addEventListener("click", undoProjectChange);
+redoButton.addEventListener("click", redoProjectChange);
 exportButton.addEventListener("click", exportProject);
 imageInput.addEventListener("change", importImage);
 projectInput.addEventListener("change", importProject);
@@ -102,6 +114,7 @@ window.addEventListener("resize", updateCanvasScale);
 window.addEventListener("keydown", onKeyDown);
 
 manifestForm.addEventListener("input", () => {
+  commitHistory();
   state.manifest.name = projectName.value.trim();
   state.manifest.author = projectAuthor.value.trim();
   state.manifest.version = projectVersion.value.trim();
@@ -109,22 +122,30 @@ manifestForm.addEventListener("input", () => {
   renderValidation();
 });
 
-propertiesForm.addEventListener("input", () => {
+propertiesForm.addEventListener("input", (event) => {
   const selected = getSelectedElement();
   if (!selected) return;
 
+  commitHistory();
   selected.id = sanitizeId(elementId.value);
   selected.label = elementLabel.value.trim();
   const previousType = selected.type;
   selected.type = elementType.value;
   if (selected.type !== previousType) {
     selected.runtime = createRuntimeState(selected.type);
-    selected.behavior = createDefaultBehavior(selected.type);
+    selected.behavior = createDefaultBehavior(selected.type, selected);
   } else {
-    selected.behavior = selected.behavior || createDefaultBehavior(selected.type);
+    selected.behavior = selected.behavior || createDefaultBehavior(selected.type, selected);
+    selected.behavior.providesPower = providesPower.checked;
     selected.behavior.requiresPower = requiresPower.checked;
     selected.behavior.requiresWell = requiresWell.checked;
     selected.behavior.step = clampNumber(Number(valueStep.value), 1, 100, selected.behavior.step || getDefaultStep(selected.type));
+    if (event.target === providesPower && selected.behavior.providesPower) {
+      selected.behavior.requiresPower = false;
+    }
+    if (event.target === requiresPower && selected.behavior.requiresPower) {
+      selected.behavior.providesPower = false;
+    }
   }
   state.selectedId = selected.id;
   render();
@@ -157,12 +178,17 @@ function setMode(mode) {
 }
 
 function onPointerDown(event) {
+  event.preventDefault();
   const point = getCanvasPoint(event);
   const hit = findElementAt(point);
 
   if (state.mode === "simulate") {
     if (hit) {
+      const scrollLeft = canvasHost.scrollLeft;
+      const scrollTop = canvasHost.scrollTop;
       triggerElement(hit);
+      canvasHost.scrollLeft = scrollLeft;
+      canvasHost.scrollTop = scrollTop;
     }
     return;
   }
@@ -172,6 +198,7 @@ function onPointerDown(event) {
     state.selectedId = hit?.id ?? null;
 
     if (handle) {
+      commitHistory();
       state.selectedId = handle.element.id;
       state.resize = {
         id: handle.element.id,
@@ -181,6 +208,7 @@ function onPointerDown(event) {
       };
       canvas.setPointerCapture(event.pointerId);
     } else if (hit) {
+      commitHistory();
       state.drag = { id: hit.id, start: point, original: structuredClone(hit.hitArea) };
       canvas.setPointerCapture(event.pointerId);
     }
@@ -205,6 +233,7 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+  event.preventDefault();
   const point = getCanvasPoint(event);
 
   if (state.resize) {
@@ -233,6 +262,7 @@ function onPointerMove(event) {
 }
 
 function onPointerUp(event) {
+  event.preventDefault();
   if (state.resize) {
     state.resize = null;
     renderProperties();
@@ -263,18 +293,20 @@ function onPointerUp(event) {
 }
 
 function addElement(hitArea) {
+  commitHistory();
   const shape = hitArea.shape;
   const id = nextElementId(shape);
+  const type = elementDefaults[shape] || "button";
   const element = {
     id,
-    type: elementDefaults[shape] || "button",
+    type,
     label: id,
     hitArea,
     states: shape === "rect" ? ["idle", "active"] : undefined,
     initial: shape === "rect" ? "idle" : undefined,
-    behavior: createDefaultBehavior(elementDefaults[shape] || "button"),
-    runtime: createRuntimeState(elementDefaults[shape] || "button"),
+    runtime: createRuntimeState(type),
   };
+  element.behavior = createDefaultBehavior(type, element);
   state.elements.push(element);
   state.selectedId = element.id;
   setTool("select");
@@ -294,6 +326,7 @@ function finishPolygon() {
 
 function deleteSelected() {
   if (!state.selectedId) return;
+  commitHistory();
   state.elements = state.elements.filter((element) => element.id !== state.selectedId);
   state.selectedId = null;
   render();
@@ -318,6 +351,7 @@ function importImage(event) {
   nextBackground.addEventListener(
     "load",
     () => {
+      commitHistory();
       if (state.backgroundObjectUrl) {
         URL.revokeObjectURL(state.backgroundObjectUrl);
       }
@@ -426,6 +460,9 @@ async function exportProject() {
   link.download = "aetherone-device.json";
   link.click();
   URL.revokeObjectURL(url);
+  state.history.dirty = false;
+  updateHistoryControls();
+  setStatus("Project JSON exported.");
 }
 
 function importProject(event) {
@@ -436,8 +473,9 @@ function importProject(event) {
   reader.addEventListener("load", () => {
     try {
       const project = JSON.parse(reader.result);
+      commitHistory();
       state.manifest = normalizeManifest(project.manifest);
-      state.elements = Array.isArray(project.elements) ? project.elements.map(normalizeElement) : [];
+      state.elements = normalizeElements(project.elements);
       state.selectedId = null;
       state.nextElementNumber = state.elements.length + 1;
       resetSession();
@@ -446,6 +484,7 @@ function importProject(event) {
       renderProperties();
       renderElementList();
       renderValidation();
+      updateHistoryControls();
     } catch (error) {
       setStatus(`Could not import project: ${error.message}`);
     }
@@ -575,7 +614,7 @@ function renderProperties() {
   [elementId, elementLabel, elementType].forEach((input) => {
     input.disabled = disabled;
   });
-  [requiresPower, requiresWell, valueStep].forEach((input) => {
+  [providesPower, requiresPower, requiresWell, valueStep].forEach((input) => {
     input.disabled = disabled;
   });
   deleteButton.disabled = disabled;
@@ -583,7 +622,8 @@ function renderProperties() {
   elementId.value = selected?.id || "";
   elementLabel.value = selected?.label || "";
   elementType.value = selected?.type || "button";
-  const behavior = selected?.behavior || createDefaultBehavior(selected?.type || "button");
+  const behavior = selected?.behavior || createDefaultBehavior(selected?.type || "button", selected);
+  providesPower.checked = Boolean(behavior.providesPower);
   requiresPower.checked = Boolean(behavior.requiresPower);
   requiresWell.checked = Boolean(behavior.requiresWell);
   valueStep.value = behavior.step || getDefaultStep(selected?.type || "button");
@@ -596,6 +636,16 @@ function renderManifest() {
   projectAuthor.value = manifest.author;
   projectVersion.value = manifest.version;
   projectDescription.value = manifest.description;
+}
+
+function refreshEditor() {
+  renderManifest();
+  render();
+  renderProperties();
+  renderElementList();
+  renderValidation();
+  renderSession();
+  updateHistoryControls();
 }
 
 function renderElementList() {
@@ -689,8 +739,8 @@ function validateDevice() {
     }
   });
 
-  if (state.elements.length > 0 && state.elements.some((element) => element.behavior?.requiresPower) && !state.elements.some((element) => element.type === "toggle")) {
-    messages.push("Add a toggle element if this device should require power before operation.");
+  if (state.elements.length > 0 && state.elements.some((element) => element.behavior?.requiresPower) && !getPowerProvider()) {
+    messages.push("Mark one toggle as a power provider before requiring power on other elements.");
   }
 
   if (state.elements.some((element) => element.behavior?.requiresWell) && !state.elements.some((element) => element.type === "well")) {
@@ -769,13 +819,17 @@ function blockElement(element, reason) {
 }
 
 function evaluateRules(element) {
-  if (element.type === "toggle" || state.elements.length === 1) {
+  if (element.behavior?.providesPower || state.elements.length === 1) {
     return { allowed: true };
   }
 
-  const requiresPower = element.behavior?.requiresPower ?? element.type !== "toggle";
-  const powerToggle = state.elements.find((candidate) => candidate.type === "toggle");
-  if (requiresPower && powerToggle && !powerToggle.runtime?.on) {
+  const requiresPower = Boolean(element.behavior?.requiresPower);
+  const powerToggle = getPowerProvider();
+  if (requiresPower && !powerToggle) {
+    return { allowed: false, reason: "No power source is configured." };
+  }
+
+  if (requiresPower && !powerToggle.runtime?.on) {
     return { allowed: false, reason: "Power is off." };
   }
 
@@ -834,12 +888,18 @@ function normalizeManifest(manifest = {}) {
   };
 }
 
-function createDefaultBehavior(type) {
+function createDefaultBehavior(type, element = null, hasPowerProvider = Boolean(getPowerProvider(element))) {
+  const providesPower = type === "toggle" && !hasPowerProvider;
   return {
-    requiresPower: type !== "toggle",
+    providesPower,
+    requiresPower: !providesPower,
     requiresWell: type === "button" || type === "meter" || type === "resonance",
     step: getDefaultStep(type),
   };
+}
+
+function getPowerProvider(except = null) {
+  return state.elements.find((element) => element !== except && element.behavior?.providesPower);
 }
 
 function getDefaultStep(type) {
@@ -856,13 +916,33 @@ function getBehaviorStep(element) {
   return clampNumber(Number(element.behavior?.step), 1, 100, getDefaultStep(element.type));
 }
 
-function normalizeElement(element) {
+function normalizeElements(elements) {
+  if (!Array.isArray(elements)) return [];
+
+  let hasPowerProvider = false;
+  return elements.map((element) => {
+    const normalized = normalizeElement(element, hasPowerProvider);
+    hasPowerProvider = hasPowerProvider || Boolean(normalized.behavior?.providesPower);
+    return normalized;
+  });
+}
+
+function normalizeElement(element, hasPowerProvider = Boolean(getPowerProvider())) {
   const type = element.type || "button";
+  const rawBehavior = element.behavior || {};
+  const hasExplicitPowerProvider = Object.hasOwn(rawBehavior, "providesPower");
+  const behavior = { ...createDefaultBehavior(type, null, hasPowerProvider), ...rawBehavior };
+
+  if (type === "toggle" && !hasExplicitPowerProvider) {
+    behavior.providesPower = !hasPowerProvider;
+    behavior.requiresPower = hasPowerProvider;
+  }
+
   return {
     ...element,
     label: element.label || element.id || "Element",
     type,
-    behavior: { ...createDefaultBehavior(type), ...(element.behavior || {}) },
+    behavior,
     runtime: createRuntimeState(type),
   };
 }
@@ -1139,18 +1219,39 @@ function stepZoom(direction) {
 
 function updateCanvasScale() {
   if (state.zoom === "fit") {
-    canvas.style.width = "";
+    const hostStyle = getComputedStyle(canvasHost);
+    const horizontalPadding = parseFloat(hostStyle.paddingLeft) + parseFloat(hostStyle.paddingRight);
+    const verticalPadding = parseFloat(hostStyle.paddingTop) + parseFloat(hostStyle.paddingBottom);
+    const availableWidth = Math.max(1, canvasHost.clientWidth - horizontalPadding);
+    const availableHeight = Math.max(1, canvasHost.clientHeight - verticalPadding);
+    const scale = Math.min(availableWidth / canvas.width, availableHeight / canvas.height, 1);
+    canvas.style.width = `${Math.max(1, Math.floor(canvas.width * scale))}px`;
+    canvas.style.height = "auto";
     zoomFitButton.classList.add("is-active");
     zoomActualButton.classList.remove("is-active");
     return;
   }
 
   canvas.style.width = `${Math.round(canvas.width * state.zoom)}px`;
+  canvas.style.height = "auto";
   zoomFitButton.classList.remove("is-active");
   zoomActualButton.classList.toggle("is-active", state.zoom === 1);
 }
 
 function onKeyDown(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    if (event.shiftKey) redoProjectChange();
+    else undoProjectChange();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+    event.preventDefault();
+    redoProjectChange();
+    return;
+  }
+
   if (event.key !== "Delete" && event.key !== "Backspace") return;
   const target = event.target;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
@@ -1162,8 +1263,115 @@ function releasePointer(event) {
   canvas.releasePointerCapture(event.pointerId);
 }
 
+function getProjectSnapshot() {
+  return {
+    manifest: normalizeManifest(state.manifest),
+    backgroundSrc: state.backgroundSrc,
+    backgroundExportSrc: state.backgroundExportSrc,
+    elements: state.elements.map(serializeElement),
+    selectedId: state.selectedId,
+    nextElementNumber: state.nextElementNumber,
+  };
+}
+
+function commitHistory() {
+  if (state.history.restoring) return;
+
+  const snapshot = getProjectSnapshot();
+  const previous = state.history.undo.at(-1);
+  if (previous && JSON.stringify(previous) === JSON.stringify(snapshot)) {
+    return;
+  }
+
+  state.history.undo.push(snapshot);
+  if (state.history.undo.length > 80) {
+    state.history.undo.shift();
+  }
+
+  state.history.redo = [];
+  state.history.dirty = true;
+  updateHistoryControls();
+}
+
+function undoProjectChange() {
+  if (state.history.undo.length === 0) return;
+
+  const current = getProjectSnapshot();
+  const snapshot = state.history.undo.pop();
+  state.history.redo.push(current);
+  restoreProjectSnapshot(snapshot);
+  state.history.dirty = true;
+  setStatus("Undo applied.");
+  updateHistoryControls();
+}
+
+function redoProjectChange() {
+  if (state.history.redo.length === 0) return;
+
+  const current = getProjectSnapshot();
+  const snapshot = state.history.redo.pop();
+  state.history.undo.push(current);
+  restoreProjectSnapshot(snapshot);
+  state.history.dirty = true;
+  setStatus("Redo applied.");
+  updateHistoryControls();
+}
+
+function restoreProjectSnapshot(snapshot) {
+  state.history.restoring = true;
+  state.manifest = normalizeManifest(snapshot.manifest);
+  state.elements = normalizeElements(snapshot.elements);
+  state.selectedId = snapshot.selectedId || null;
+  state.nextElementNumber = snapshot.nextElementNumber || state.elements.length + 1;
+  state.backgroundExportSrc = snapshot.backgroundExportSrc || snapshot.backgroundSrc || "src/docs/prototype.jpg";
+
+  if (snapshot.backgroundSrc && snapshot.backgroundSrc !== state.backgroundSrc) {
+    restoreBackgroundSource(snapshot.backgroundSrc, state.backgroundExportSrc);
+  }
+
+  resetSession();
+  refreshEditor();
+  state.history.restoring = false;
+}
+
+function restoreBackgroundSource(src, exportSrc) {
+  const nextBackground = new Image();
+
+  nextBackground.addEventListener(
+    "load",
+    () => {
+      state.backgroundSrc = src;
+      state.backgroundExportSrc = exportSrc;
+      state.background = nextBackground;
+      canvas.width = nextBackground.naturalWidth || 1280;
+      canvas.height = nextBackground.naturalHeight || 860;
+      updateCanvasScale();
+      render();
+    },
+    { once: true },
+  );
+
+  nextBackground.addEventListener(
+    "error",
+    () => {
+      setStatus("Could not restore the background image from history.");
+    },
+    { once: true },
+  );
+
+  nextBackground.src = src;
+}
+
+function updateHistoryControls() {
+  undoButton.disabled = state.history.undo.length === 0;
+  redoButton.disabled = state.history.redo.length === 0;
+  dirtyBadge.textContent = state.history.dirty ? "Unsaved" : "Saved";
+  dirtyBadge.classList.toggle("is-clean", !state.history.dirty);
+}
+
 renderProperties();
 renderManifest();
 renderElementList();
 renderValidation();
 renderSession();
+updateHistoryControls();

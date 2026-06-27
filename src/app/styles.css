@@ -18,7 +18,8 @@
 body {
   margin: 0;
   min-width: 960px;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: Inter, "Segoe UI", Arial, sans-serif;
@@ -54,7 +55,8 @@ button:disabled {
 .studio-shell {
   display: grid;
   grid-template-columns: 330px minmax(620px, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
 }
 
 .sidebar {
@@ -65,6 +67,7 @@ button:disabled {
   border-right: 1px solid var(--line);
   background: #181b20;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .brand {
@@ -147,6 +150,28 @@ button:disabled {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.dirty-badge {
+  min-width: 58px;
+  border: 1px solid rgba(242, 184, 75, 0.5);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: #ffe0a1;
+  text-align: center;
+  font-size: 12px;
+}
+
+.dirty-badge.is-clean {
+  border-color: rgba(84, 195, 177, 0.45);
+  color: #c9fff7;
 }
 
 .compact {
@@ -354,6 +379,7 @@ button:disabled {
   display: grid;
   grid-template-rows: 58px minmax(0, 1fr);
   min-width: 0;
+  min-height: 0;
 }
 
 .topbar {
@@ -404,8 +430,12 @@ button:disabled {
 #deviceCanvas {
   width: min(100%, 1280px);
   height: auto;
+  display: block;
+  max-width: none;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #07090b;
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.38);
+  touch-action: none;
+  user-select: none;
 }
