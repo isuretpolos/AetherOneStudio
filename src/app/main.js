@@ -24,6 +24,7 @@ const providesPower = document.querySelector("#providesPower");
 const requiresPower = document.querySelector("#requiresPower");
 const requiresWell = document.querySelector("#requiresWell");
 const rotateGraphics = document.querySelector("#rotateGraphics");
+const showValue = document.querySelector("#showValue");
 const valueStep = document.querySelector("#valueStep");
 const valueMin = document.querySelector("#valueMin");
 const valueMax = document.querySelector("#valueMax");
@@ -62,6 +63,8 @@ const state = {
   selectedId: null,
   zoom: "fit",
   hoveredId: null,
+  copiedElement: null,
+  lastCanvasPoint: null,
   draft: null,
   drag: null,
   resize: null,
@@ -153,6 +156,7 @@ propertiesForm.addEventListener("input", (event) => {
     selected.behavior.requiresPower = requiresPower.checked;
     selected.behavior.requiresWell = requiresWell.checked;
     selected.behavior.rotateGraphics = rotateGraphics.checked;
+    selected.behavior.showValue = showValue.checked;
     selected.behavior.step = clampNumber(Number(valueStep.value), 1, 100, selected.behavior.step || getDefaultStep(selected.type));
     if (usesRangeValue(selected.type)) {
       selected.behavior.min = Number(valueMin.value);
@@ -203,6 +207,7 @@ function setMode(mode) {
 function onPointerDown(event) {
   event.preventDefault();
   const point = getCanvasPoint(event);
+  state.lastCanvasPoint = point;
   const hit = findElementAt(point);
 
   if (state.mode === "simulate") {
@@ -259,6 +264,7 @@ function onPointerDown(event) {
 function onPointerMove(event) {
   event.preventDefault();
   const point = getCanvasPoint(event);
+  state.lastCanvasPoint = point;
   const hit = findElementAt(point);
   state.hoveredId = hit?.id || null;
 
@@ -380,6 +386,35 @@ function deleteSelected() {
   renderProperties();
   renderElementList();
   renderValidation();
+}
+
+function copySelectedElement() {
+  const selected = getSelectedElement();
+  if (!selected || state.mode !== "edit") return false;
+
+  state.copiedElement = serializeElement(selected);
+  setStatus(`Copied ${selected.id}.`);
+  return true;
+}
+
+function pasteCopiedElement() {
+  if (!state.copiedElement || state.mode !== "edit") return false;
+
+  commitHistory();
+  const copy = structuredClone(state.copiedElement);
+  copy.id = nextGroupedElementId(copy.id);
+  copy.hitArea = moveHitAreaToPoint(copy.hitArea, state.lastCanvasPoint || getHitAreaCenter(copy.hitArea));
+  copy.runtime = createRuntimeState(copy.type);
+  delete copy.flashUntil;
+  delete copy.flashKind;
+  state.elements.push(copy);
+  state.selectedId = copy.id;
+  render();
+  renderProperties();
+  renderElementList();
+  renderValidation();
+  setStatus(`Pasted ${copy.id}.`);
+  return true;
 }
 
 function importImage(event) {
@@ -728,7 +763,7 @@ function renderProperties() {
   [elementId, elementLabel, elementType].forEach((input) => {
     input.disabled = disabled;
   });
-  [behaviorAction, providesPower, requiresPower, requiresWell, rotateGraphics, valueStep, valueMin, valueMax, arcMin, arcMax].forEach((input) => {
+  [behaviorAction, providesPower, requiresPower, requiresWell, rotateGraphics, showValue, valueStep, valueMin, valueMax, arcMin, arcMax].forEach((input) => {
     input.disabled = disabled;
   });
   deleteButton.disabled = disabled;
@@ -742,6 +777,7 @@ function renderProperties() {
   requiresPower.checked = Boolean(behavior.requiresPower);
   requiresWell.checked = Boolean(behavior.requiresWell);
   rotateGraphics.checked = Boolean(behavior.rotateGraphics);
+  showValue.checked = Boolean(behavior.showValue);
   valueStep.value = behavior.step || getDefaultStep(selected?.type || "button");
   valueStep.disabled = disabled || !usesStepValue(selected?.type);
   rotateGraphics.disabled = disabled || selected?.type !== "knob";
@@ -1074,6 +1110,7 @@ function createDefaultBehavior(type, element = null, hasPowerProvider = Boolean(
     requiresPower: !providesPower,
     requiresWell: type === "button" || type === "meter" || type === "resonance",
     rotateGraphics: false,
+    showValue: true,
     action: "default",
     min: getDefaultMin(type),
     max: getDefaultMax(type),
@@ -1439,7 +1476,7 @@ function getFlashStyle(element) {
 }
 
 function drawRuntimeState(element) {
-  if (state.mode !== "simulate") return;
+  if (state.mode !== "simulate" || !element.behavior?.showValue) return;
 
   const anchor = getHitAreaAnchor(element.hitArea);
   const summary = getRuntimeSummary(element);
@@ -1537,6 +1574,11 @@ function moveHitArea(hitArea, dx, dy) {
     ...hitArea,
     points: hitArea.points.map((point) => ({ x: Math.round(point.x + dx), y: Math.round(point.y + dy) })),
   };
+}
+
+function moveHitAreaToPoint(hitArea, point) {
+  const center = getHitAreaCenter(hitArea);
+  return moveHitArea(hitArea, point.x - center.x, point.y - center.y);
 }
 
 function resizeHitArea(hitArea, handle, point) {
@@ -1639,6 +1681,30 @@ function nextElementId(prefix) {
   return id;
 }
 
+function nextGroupedElementId(id) {
+  const parsed = parseElementIdGroup(id);
+  const highest = state.elements.reduce((max, element) => {
+    const candidate = parseElementIdGroup(element.id);
+    return candidate.prefix === parsed.prefix ? Math.max(max, candidate.number) : max;
+  }, 0);
+  return `${parsed.prefix}${highest + 1}`;
+}
+
+function parseElementIdGroup(id) {
+  const match = String(id || "ELEMENT").match(/^(.*?)(\d+)$/);
+  if (match) {
+    return {
+      prefix: match[1] || "ELEMENT",
+      number: Number(match[2]),
+    };
+  }
+
+  return {
+    prefix: String(id || "ELEMENT"),
+    number: 0,
+  };
+}
+
 function sanitizeId(value) {
   const normalized = value.replace(/[^a-zA-Z0-9_-]/g, "");
   return normalized || state.selectedId || nextElementId("element");
@@ -1702,6 +1768,23 @@ function onKeyDown(event) {
     return;
   }
 
+  const target = event.target;
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
+
+  if (state.mode === "edit" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+    if (copySelectedElement()) {
+      event.preventDefault();
+    }
+    return;
+  }
+
+  if (state.mode === "edit" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+    if (pasteCopiedElement()) {
+      event.preventDefault();
+    }
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     if (event.shiftKey) redoProjectChange();
@@ -1716,8 +1799,6 @@ function onKeyDown(event) {
   }
 
   if (event.key !== "Delete" && event.key !== "Backspace") return;
-  const target = event.target;
-  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
   deleteSelected();
 }
 

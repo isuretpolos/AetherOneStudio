@@ -386,6 +386,8 @@ Open `index.html` in a browser to try the first editor slice:
 * Region selection and dragging
 * Resize handles for rectangles, circles, and polygon vertices
 * Element ID, optional label, and type editing
+* Per-element simulation value display toggle
+* Fast element copying and mouse-position paste with grouped ID numbering
 * Rotary knob min, max, step, and arc configuration
 * Optional rotary knob background-graphic rotation
 * Canvas fit, zoom in, zoom out, and 100% controls
