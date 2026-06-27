@@ -1,0 +1,230 @@
+<main class="studio-shell">
+  <aside class="sidebar">
+    <header class="brand">
+      <span class="brand-mark">A1</span>
+      <div>
+        <h1>AetherOne Studio</h1>
+        <p>Tauri + Angular shell</p>
+      </div>
+    </header>
+
+    <section class="panel">
+      <h2>Project</h2>
+      <label>
+        Name
+        <input [ngModel]="store.manifest().name" (ngModelChange)="store.updateManifest({ name: $event })" />
+      </label>
+      <div class="two-column-fields">
+        <label>
+          Author
+          <input [ngModel]="store.manifest().author" (ngModelChange)="store.updateManifest({ author: $event })" />
+        </label>
+        <label>
+          Version
+          <input [ngModel]="store.manifest().version" (ngModelChange)="store.updateManifest({ version: $event })" />
+        </label>
+      </div>
+      <label>
+        Description
+        <textarea rows="3" [ngModel]="store.manifest().description" (ngModelChange)="store.updateManifest({ description: $event })"></textarea>
+      </label>
+      <label class="file-button">
+        Import image
+        <input type="file" accept="image/*" (change)="importImage($event)" />
+      </label>
+      <div class="button-row">
+        <button type="button" (click)="store.exportProject()">Export JSON</button>
+        <label class="file-button compact">
+          Import JSON
+          <input type="file" accept="application/json,.json" (change)="importProject($event)" />
+        </label>
+      </div>
+      <div class="history-row">
+        <button type="button" [disabled]="store.undoCount() === 0" (click)="store.undo()">Undo</button>
+        <button type="button" [disabled]="store.redoCount() === 0" (click)="store.redo()">Redo</button>
+        <span class="dirty-badge" [class.is-clean]="!store.dirty()">{{ store.dirty() ? 'Unsaved' : 'Saved' }}</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Tools</h2>
+      <div class="tool-grid">
+        <button type="button" [class.is-active]="store.tool() === 'select'" (click)="store.setTool('select')">Select</button>
+        <button type="button" [class.is-active]="store.tool() === 'rect'" (click)="store.setTool('rect')">Rectangle</button>
+        <button type="button" [class.is-active]="store.tool() === 'circle'" (click)="store.setTool('circle')">Circle</button>
+        <button type="button" [class.is-active]="store.tool() === 'polygon'" (click)="store.setTool('polygon')">Polygon</button>
+      </div>
+      <button type="button" class="danger-button" [disabled]="!selected()" (click)="store.deleteSelected()">Delete selected</button>
+    </section>
+
+    <section class="panel">
+      <h2>Selected Element</h2>
+      <label>
+        ID
+        <input [disabled]="!selected()" [ngModel]="selected()?.id ?? ''" (ngModelChange)="updateSelectedId($event)" />
+      </label>
+      <label>
+        Label
+        <input [disabled]="!selected()" [ngModel]="selected()?.label ?? ''" (ngModelChange)="store.updateSelected({ label: $event })" />
+      </label>
+      <label>
+        Type
+        <select [disabled]="!selected()" [ngModel]="selected()?.type ?? 'button'" (ngModelChange)="updateSelectedType($event)">
+          @for (type of elementTypes; track type.value) {
+            <option [ngValue]="type.value">{{ type.label }}</option>
+          }
+        </select>
+      </label>
+
+      <fieldset class="behavior-options" [disabled]="!selected()">
+        <legend>Behavior</legend>
+        <label>
+          Operation
+          <select [ngModel]="selected()?.behavior?.action ?? 'default'" (ngModelChange)="updateBehavior('action', $event)">
+            @for (action of actions; track action.value) {
+              <option [ngValue]="action.value">{{ action.label }}</option>
+            }
+          </select>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" [ngModel]="selected()?.behavior?.providesPower ?? false" (ngModelChange)="updateBehavior('providesPower', $event)" />
+          Provides power
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" [ngModel]="selected()?.behavior?.requiresPower ?? false" (ngModelChange)="updateBehavior('requiresPower', $event)" />
+          Requires power
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" [ngModel]="selected()?.behavior?.requiresWell ?? false" (ngModelChange)="updateBehavior('requiresWell', $event)" />
+          Requires loaded well
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" [disabled]="selected()?.type !== 'knob'" [ngModel]="selected()?.behavior?.rotateGraphics ?? false" (ngModelChange)="updateBehavior('rotateGraphics', $event)" />
+          Rotate graphics
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" [disabled]="selected()?.type !== 'toggle'" [ngModel]="selected()?.behavior?.transformGraphics ?? false" (ngModelChange)="updateBehavior('transformGraphics', $event)" />
+          Transform graphic
+        </label>
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            [disabled]="selected()?.type !== 'toggle' || !selected()?.behavior?.transformGraphics"
+            [ngModel]="selected()?.behavior?.transformVertical ?? false"
+            (ngModelChange)="updateBehavior('transformVertical', $event)"
+          />
+          Horizontal / Vertical
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" [ngModel]="selected()?.behavior?.showValue ?? true" (ngModelChange)="updateBehavior('showValue', $event)" />
+          Show value
+        </label>
+        <label>
+          Step
+          <input type="number" min="1" max="100" [disabled]="!selected()" [ngModel]="selected()?.behavior?.step ?? 1" (ngModelChange)="updateBehavior('step', +$event)" />
+        </label>
+        <div class="two-column-fields">
+          <label>
+            Min
+            <input type="number" [disabled]="!canEditRange()" [ngModel]="selected()?.behavior?.min ?? 0" (ngModelChange)="updateBehavior('min', +$event)" />
+          </label>
+          <label>
+            Max
+            <input type="number" [disabled]="!canEditRange()" [ngModel]="selected()?.behavior?.max ?? 100" (ngModelChange)="updateBehavior('max', +$event)" />
+          </label>
+        </div>
+        <div class="two-column-fields">
+          <label>
+            Min arc
+            <input type="number" [disabled]="!canEditRange()" [ngModel]="selected()?.behavior?.arcMin ?? 0" (ngModelChange)="updateBehavior('arcMin', +$event)" />
+          </label>
+          <label>
+            Max arc
+            <input type="number" [disabled]="!canEditRange()" [ngModel]="selected()?.behavior?.arcMax ?? 270" (ngModelChange)="updateBehavior('arcMax', +$event)" />
+          </label>
+        </div>
+      </fieldset>
+    </section>
+
+    <section class="panel validation-panel">
+      <h2>Validation</h2>
+      <ul class="validation-list">
+        @for (message of store.validationMessages(); track message) {
+          <li class="is-warning">{{ message }}</li>
+        } @empty {
+          <li class="is-ok">Ready for simulation.</li>
+        }
+      </ul>
+    </section>
+
+    <section class="panel session-panel">
+      <div class="panel-title-row">
+        <h2>Simulation</h2>
+        <button type="button" (click)="store.resetSession()">Reset</button>
+      </div>
+      <dl class="session-stats">
+        <div>
+          <dt>Mode</dt>
+          <dd>{{ store.session().mode }}</dd>
+        </div>
+        <div>
+          <dt>Events</dt>
+          <dd>{{ store.session().events.length }}</dd>
+        </div>
+        <div>
+          <dt>Blocked</dt>
+          <dd>{{ store.session().blockedCount }}</dd>
+        </div>
+        <div>
+          <dt>Completed</dt>
+          <dd>{{ store.completedSummary() }}</dd>
+        </div>
+      </dl>
+      <ol class="event-log">
+        @for (event of store.session().events.slice(0, 12); track event.id) {
+          <li [class.is-blocked]="event.kind === 'blocked'">
+            <strong>{{ event.label }}</strong>
+            <span>{{ event.time }} - {{ event.detail }}</span>
+          </li>
+        }
+      </ol>
+    </section>
+
+    <section class="panel element-list-panel">
+      <h2>Elements</h2>
+      <ol class="element-list">
+        @for (element of store.elements(); track element.id) {
+          <li>
+            <button type="button" [class.is-selected]="element.id === store.selectedId()" (click)="store.selectElement(element.id)">
+              {{ element.label || element.id }} ({{ element.type }})
+            </button>
+          </li>
+        } @empty {
+          <li class="empty-state">Add an element with a drawing tool.</li>
+        }
+      </ol>
+    </section>
+  </aside>
+
+  <section class="workspace">
+    <div class="topbar">
+      <div class="mode-toggle">
+        <button type="button" [class.is-active]="store.mode() === 'edit'" (click)="store.setMode('edit')">Edit</button>
+        <button type="button" [class.is-active]="store.mode() === 'simulate'" (click)="store.setMode('simulate')">Simulate</button>
+      </div>
+      <div class="zoom-controls">
+        <button type="button" (click)="store.stepZoom(-1)">-</button>
+        <button type="button" [class.is-active]="store.zoom() === 'fit'" (click)="store.setZoom('fit')">Fit</button>
+        <button type="button" [class.is-active]="store.zoom() === 1" (click)="store.setZoom(1)">100%</button>
+        <button type="button" (click)="store.stepZoom(1)">+</button>
+      </div>
+      <p>{{ store.status() }}</p>
+    </div>
+
+    <section class="stage-panel">
+      <app-device-stage />
+    </section>
+
+    <app-script-editor />
+  </section>
+</main>

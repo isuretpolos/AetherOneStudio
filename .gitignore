@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Angular build/cache output
+dist/
+.angular/
+
+# Tauri/Rust output
+src-tauri/target/
+
+# Logs and local environment
+*.log
+.env
+.env.*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
