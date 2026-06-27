@@ -389,6 +389,8 @@ Open `index.html` in a browser to try the first editor slice:
 * Canvas fit, zoom in, zoom out, and 100% controls
 * Basic validation for missing regions, duplicate IDs, empty labels, and tiny hit areas
 * Basic edit/simulation mode switch
+* Simulation session panel with reset and event history
+* Element-specific simulation behavior for buttons, toggles, knobs, sliders, wells, LEDs, meters, displays, and resonance indicators
 * Project JSON import and export
 
 The intended production stack remains Tauri + Angular + TypeScript + Konva.js. This initial prototype keeps the UX and data model moving while the desktop scaffold is prepared.

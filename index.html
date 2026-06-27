@@ -80,6 +80,24 @@
           <h2>Validation</h2>
           <ul id="validationList" class="validation-list"></ul>
         </section>
+
+        <section class="panel session-panel">
+          <div class="panel-title-row">
+            <h2>Simulation</h2>
+            <button id="resetSessionButton" type="button">Reset</button>
+          </div>
+          <dl class="session-stats">
+            <div>
+              <dt>Mode</dt>
+              <dd id="sessionMode">Idle</dd>
+            </div>
+            <div>
+              <dt>Events</dt>
+              <dd id="sessionEventCount">0</dd>
+            </div>
+          </dl>
+          <ol id="eventLog" class="event-log"></ol>
+        </section>
       </aside>
 
       <section class="workspace">

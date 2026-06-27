@@ -118,6 +118,19 @@ button:disabled {
   color: var(--muted);
 }
 
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panel-title-row button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .file-button {
   display: grid;
   place-items: center;
@@ -189,7 +202,8 @@ button:disabled {
 }
 
 .element-list,
-.validation-list {
+.validation-list,
+.event-log {
   display: grid;
   gap: 6px;
   margin: 0;
@@ -231,6 +245,57 @@ button:disabled {
 .validation-list li.is-warning {
   border-color: rgba(242, 184, 75, 0.5);
   color: #ffe0a1;
+}
+
+.session-panel {
+  min-height: 180px;
+}
+
+.session-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.session-stats div {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #11151a;
+}
+
+.session-stats dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.session-stats dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.event-log {
+  max-height: 180px;
+  overflow: auto;
+}
+
+.event-log li {
+  border-left: 3px solid var(--accent);
+  padding: 7px 8px;
+  background: #11151a;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.event-log strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .workspace {

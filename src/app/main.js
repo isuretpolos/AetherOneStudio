@@ -12,6 +12,10 @@ const elementId = document.querySelector("#elementId");
 const elementLabel = document.querySelector("#elementLabel");
 const elementType = document.querySelector("#elementType");
 const validationList = document.querySelector("#validationList");
+const resetSessionButton = document.querySelector("#resetSessionButton");
+const sessionMode = document.querySelector("#sessionMode");
+const sessionEventCount = document.querySelector("#sessionEventCount");
+const eventLog = document.querySelector("#eventLog");
 const editModeButton = document.querySelector("#editModeButton");
 const simulateModeButton = document.querySelector("#simulateModeButton");
 const zoomOutButton = document.querySelector("#zoomOutButton");
@@ -35,6 +39,10 @@ const state = {
   resize: null,
   polygonDraft: null,
   nextElementNumber: 1,
+  session: {
+    mode: "idle",
+    events: [],
+  },
 };
 
 const elementDefaults = {
@@ -63,6 +71,7 @@ zoomOutButton.addEventListener("click", () => stepZoom(-1));
 zoomFitButton.addEventListener("click", () => setZoom("fit"));
 zoomActualButton.addEventListener("click", () => setZoom(1));
 zoomInButton.addEventListener("click", () => stepZoom(1));
+resetSessionButton.addEventListener("click", resetSession);
 deleteButton.addEventListener("click", deleteSelected);
 exportButton.addEventListener("click", exportProject);
 imageInput.addEventListener("change", importImage);
@@ -81,7 +90,11 @@ propertiesForm.addEventListener("input", () => {
 
   selected.id = sanitizeId(elementId.value);
   selected.label = elementLabel.value.trim();
+  const previousType = selected.type;
   selected.type = elementType.value;
+  if (selected.type !== previousType) {
+    selected.runtime = createRuntimeState(selected.type);
+  }
   state.selectedId = selected.id;
   render();
   renderProperties();
@@ -118,9 +131,7 @@ function onPointerDown(event) {
 
   if (state.mode === "simulate") {
     if (hit) {
-      state.selectedId = hit.id;
-      setStatus(`${hit.label || hit.id} triggered.`);
-      flashElement(hit.id);
+      triggerElement(hit);
     }
     return;
   }
@@ -230,6 +241,7 @@ function addElement(hitArea) {
     hitArea,
     states: shape === "rect" ? ["idle", "active"] : undefined,
     initial: shape === "rect" ? "idle" : undefined,
+    runtime: createRuntimeState(elementDefaults[shape] || "button"),
   };
   state.elements.push(element);
   state.selectedId = element.id;
@@ -377,7 +389,7 @@ async function exportProject() {
       width: canvas.width,
       height: canvas.height,
     },
-    elements: state.elements,
+    elements: state.elements.map(serializeElement),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -396,9 +408,10 @@ function importProject(event) {
   reader.addEventListener("load", () => {
     try {
       const project = JSON.parse(reader.result);
-      state.elements = Array.isArray(project.elements) ? project.elements : [];
+      state.elements = Array.isArray(project.elements) ? project.elements.map(normalizeElement) : [];
       state.selectedId = null;
       state.nextElementNumber = state.elements.length + 1;
+      resetSession();
       setBackgroundFromSource(project.background?.src || "src/docs/prototype.jpg", `Imported project: ${file.name}`);
       renderProperties();
       renderElementList();
@@ -435,12 +448,14 @@ function render() {
 function drawElement(element) {
   const selected = element.id === state.selectedId;
   const active = element.flashUntil && element.flashUntil > performance.now();
+  const typeStyle = getElementTypeStyle(element);
   drawHitArea(element.hitArea, {
-    stroke: active ? "#fff4a3" : selected ? "#f2b84b" : "#54c3b1",
-    fill: active ? "rgba(255, 244, 163, 0.26)" : selected ? "rgba(242, 184, 75, 0.18)" : "rgba(84, 195, 177, 0.14)",
+    stroke: active ? "#fff4a3" : selected ? "#f2b84b" : typeStyle.stroke,
+    fill: active ? "rgba(255, 244, 163, 0.26)" : selected ? "rgba(242, 184, 75, 0.18)" : typeStyle.fill,
     lineWidth: selected ? 3 : 2,
   });
   drawLabel(element);
+  drawRuntimeState(element);
 }
 
 function drawHitArea(hitArea, style) {
@@ -556,6 +571,23 @@ function renderElementList() {
   });
 }
 
+function renderSession() {
+  sessionMode.textContent = titleCase(state.session.mode);
+  sessionEventCount.textContent = String(state.session.events.length);
+  eventLog.replaceChildren();
+
+  state.session.events.slice(0, 12).forEach((event) => {
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = event.label;
+    const detail = document.createElement("span");
+    detail.textContent = `${event.time} - ${event.detail}`;
+    title.append(" ");
+    item.append(title, detail);
+    eventLog.append(item);
+  });
+}
+
 function renderValidation() {
   const messages = validateDevice();
   validationList.replaceChildren();
@@ -616,6 +648,127 @@ function flashElement(id) {
   element.flashUntil = performance.now() + 260;
   render();
   window.setTimeout(render, 280);
+}
+
+function triggerElement(element) {
+  state.selectedId = element.id;
+  element.runtime = element.runtime || createRuntimeState(element.type);
+
+  if (element.type === "toggle") {
+    element.runtime.on = !element.runtime.on;
+    state.session.mode = element.runtime.on ? "powered" : "idle";
+    logEvent(element, element.runtime.on ? "Switched on." : "Switched off.");
+  } else if (element.type === "well") {
+    element.runtime.hasContent = !element.runtime.hasContent;
+    logEvent(element, element.runtime.hasContent ? "Virtual content placed." : "Virtual content removed.");
+  } else if (element.type === "knob") {
+    element.runtime.value = wrapValue((element.runtime.value || 0) + 10, 0, 100);
+    logEvent(element, `Value set to ${element.runtime.value}.`);
+  } else if (element.type === "slider" || element.type === "meter" || element.type === "resonance") {
+    element.runtime.value = wrapValue((element.runtime.value || 0) + 20, 0, 100);
+    logEvent(element, `Level set to ${element.runtime.value}.`);
+  } else if (element.type === "led") {
+    element.runtime.on = !element.runtime.on;
+    logEvent(element, element.runtime.on ? "Indicator lit." : "Indicator cleared.");
+  } else if (element.type === "display") {
+    element.runtime.text = element.runtime.text === "READY" ? "ACTIVE" : "READY";
+    logEvent(element, `Display changed to ${element.runtime.text}.`);
+  } else {
+    element.runtime.presses = (element.runtime.presses || 0) + 1;
+    logEvent(element, "Momentary action triggered.");
+  }
+
+  setStatus(`${element.label || element.id}: ${getRuntimeSummary(element)}`);
+  flashElement(element.id);
+  renderElementList();
+  renderSession();
+}
+
+function logEvent(element, detail) {
+  const now = new Date();
+  state.session.events.unshift({
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    label: element.label || element.id,
+    detail,
+  });
+}
+
+function resetSession() {
+  state.session = { mode: "idle", events: [] };
+  state.elements.forEach((element) => {
+    element.runtime = createRuntimeState(element.type);
+    delete element.flashUntil;
+  });
+  setStatus(state.mode === "simulate" ? "Simulation reset." : "Session reset.");
+  render();
+  renderElementList();
+  renderSession();
+}
+
+function createRuntimeState(type) {
+  if (type === "toggle" || type === "led") return { on: false };
+  if (type === "well") return { hasContent: false };
+  if (type === "display") return { text: "READY" };
+  if (type === "knob" || type === "slider" || type === "meter" || type === "resonance") return { value: 0 };
+  return { presses: 0 };
+}
+
+function normalizeElement(element) {
+  return {
+    ...element,
+    label: element.label || element.id || "Element",
+    type: element.type || "button",
+    runtime: createRuntimeState(element.type || "button"),
+  };
+}
+
+function serializeElement(element) {
+  const { flashUntil, runtime, ...projectElement } = element;
+  return projectElement;
+}
+
+function getRuntimeSummary(element) {
+  const runtime = element.runtime || createRuntimeState(element.type);
+  if (element.type === "toggle" || element.type === "led") return runtime.on ? "on" : "off";
+  if (element.type === "well") return runtime.hasContent ? "occupied" : "empty";
+  if (element.type === "display") return runtime.text || "READY";
+  if (typeof runtime.value === "number") return `${runtime.value}%`;
+  return "triggered";
+}
+
+function getElementTypeStyle(element) {
+  const runtime = element.runtime || {};
+  if ((element.type === "toggle" || element.type === "led") && runtime.on) {
+    return { stroke: "#9ee66e", fill: "rgba(158, 230, 110, 0.18)" };
+  }
+
+  if (element.type === "well" && runtime.hasContent) {
+    return { stroke: "#76a9ff", fill: "rgba(118, 169, 255, 0.18)" };
+  }
+
+  if (element.type === "meter" || element.type === "resonance") {
+    return { stroke: "#e7d46a", fill: "rgba(231, 212, 106, 0.15)" };
+  }
+
+  return { stroke: "#54c3b1", fill: "rgba(84, 195, 177, 0.14)" };
+}
+
+function drawRuntimeState(element) {
+  if (state.mode !== "simulate") return;
+
+  const anchor = getHitAreaAnchor(element.hitArea);
+  const summary = getRuntimeSummary(element);
+  ctx.save();
+  ctx.font = "700 13px Segoe UI, Arial, sans-serif";
+  const width = ctx.measureText(summary).width + 18;
+  ctx.fillStyle = "rgba(7, 9, 11, 0.82)";
+  ctx.fillRect(anchor.x - width / 2, anchor.y + 6, width, 24);
+  ctx.fillStyle = "#c9fff7";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(summary, anchor.x, anchor.y + 18);
+  ctx.restore();
 }
 
 function getCanvasPoint(event) {
@@ -800,6 +953,14 @@ function sanitizeId(value) {
   return normalized || state.selectedId || nextElementId("element");
 }
 
+function wrapValue(value, min, max) {
+  return value > max ? min : Math.max(min, value);
+}
+
+function titleCase(value) {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
 function setStatus(message) {
   statusText.textContent = message;
 }
@@ -847,3 +1008,4 @@ function releasePointer(event) {
 renderProperties();
 renderElementList();
 renderValidation();
+renderSession();
