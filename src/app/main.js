@@ -29,6 +29,7 @@ const resetSessionButton = document.querySelector("#resetSessionButton");
 const sessionMode = document.querySelector("#sessionMode");
 const sessionEventCount = document.querySelector("#sessionEventCount");
 const sessionBlockedCount = document.querySelector("#sessionBlockedCount");
+const sessionCompleted = document.querySelector("#sessionCompleted");
 const eventLog = document.querySelector("#eventLog");
 const editModeButton = document.querySelector("#editModeButton");
 const simulateModeButton = document.querySelector("#simulateModeButton");
@@ -658,7 +659,9 @@ function renderElementList() {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = `${element.label || element.id} (${element.type})`;
+    const action = getBehaviorAction(element);
+    const operationLabel = action === "default" ? "" : ` - ${getActionLabel(action)}`;
+    button.textContent = `${element.label || element.id} (${element.type}${operationLabel})`;
     button.classList.toggle("is-selected", element.id === state.selectedId);
     button.addEventListener("click", () => {
       state.selectedId = element.id;
@@ -675,6 +678,7 @@ function renderSession() {
   sessionMode.textContent = titleCase(state.session.mode);
   sessionEventCount.textContent = String(state.session.events.length);
   sessionBlockedCount.textContent = String(state.session.blockedCount);
+  sessionCompleted.textContent = getCompletedSummary();
   eventLog.replaceChildren();
 
   state.session.events.slice(0, 12).forEach((event) => {
@@ -938,20 +942,25 @@ function applyBehaviorAction(element) {
   if (action === "default") return false;
 
   if (action === "scan") {
-    state.session.mode = "scanning";
-    logEvent(element, "Scan started.");
+    const completing = state.session.mode === "scanning";
+    state.session.mode = completing ? getPoweredSessionMode() : "scanning";
+    state.session.completed.scan = completing || state.session.completed.scan;
+    logEvent(element, completing ? "Scan completed." : "Scan started.");
     return true;
   }
 
   if (action === "diagnosis") {
-    state.session.mode = "diagnosis";
-    logEvent(element, "Diagnosis mode active.");
+    const completing = state.session.mode === "diagnosis";
+    state.session.mode = completing ? getPoweredSessionMode() : "diagnosis";
+    state.session.completed.diagnosis = completing || state.session.completed.diagnosis;
+    logEvent(element, completing ? "Diagnosis completed." : "Diagnosis mode active.");
     return true;
   }
 
   if (action === "broadcast") {
-    state.session.mode = state.session.mode === "broadcasting" ? "powered" : "broadcasting";
-    if (state.session.mode === "powered") {
+    const completing = state.session.mode === "broadcasting";
+    state.session.mode = completing ? getPoweredSessionMode() : "broadcasting";
+    if (completing) {
       state.session.completed.broadcast = true;
       logEvent(element, "Broadcast completed.");
     } else {
@@ -961,9 +970,10 @@ function applyBehaviorAction(element) {
   }
 
   if (action === "neutralize") {
-    state.session.mode = "neutralizing";
-    state.session.completed.neutralize = true;
-    logEvent(element, "Neutralize sequence started.");
+    const completing = state.session.mode === "neutralizing";
+    state.session.mode = completing ? getPoweredSessionMode() : "neutralizing";
+    state.session.completed.neutralize = completing || state.session.completed.neutralize;
+    logEvent(element, completing ? "Neutralize completed." : "Neutralize sequence started.");
     return true;
   }
 
@@ -973,6 +983,29 @@ function applyBehaviorAction(element) {
   }
 
   return false;
+}
+
+function getPoweredSessionMode() {
+  return getPowerProvider()?.runtime?.on ? "powered" : "idle";
+}
+
+function getCompletedSummary() {
+  const completed = Object.entries(state.session.completed || {})
+    .filter(([, isComplete]) => isComplete)
+    .map(([action]) => getActionLabel(action));
+  return completed.length > 0 ? completed.join(", ") : "None";
+}
+
+function getActionLabel(action) {
+  const labels = {
+    default: "Default",
+    scan: "Scan",
+    diagnosis: "Diagnosis",
+    broadcast: "Broadcast",
+    neutralize: "Neutralize",
+    custom: "Custom",
+  };
+  return labels[action] || titleCase(action);
 }
 
 function getPowerProvider(except = null) {

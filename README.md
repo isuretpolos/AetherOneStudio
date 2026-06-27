@@ -393,6 +393,7 @@ Open `index.html` in a browser to try the first editor slice:
 * Element-specific simulation behavior for buttons, toggles, knobs, sliders, wells, LEDs, meters, displays, and resonance indicators
 * Basic simulation rule blocking with visible rejected events, blocked counters, and power/well prerequisites
 * Per-element behavior options for simulation operations, power providers, power requirements, loaded-well requirements, and numeric simulation step size
+* Start/complete simulation operations with completed operation tracking
 * Project manifest editing for name, author, version, and description
 * Undo, redo, and saved/unsaved project state tracking
 * Project JSON import and export
