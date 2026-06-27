@@ -1,0 +1,256 @@
+:root {
+  color-scheme: dark;
+  --bg: #111316;
+  --panel: #1c2025;
+  --panel-2: #242a31;
+  --line: #383f48;
+  --text: #eef2f4;
+  --muted: #98a4ad;
+  --accent: #54c3b1;
+  --accent-2: #f2b84b;
+  --danger: #e05f5f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 960px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+.file-button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover,
+.file-button:hover {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.studio-shell {
+  display: grid;
+  grid-template-columns: 330px minmax(620px, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-right: 1px solid var(--line);
+  background: #181b20;
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 0 8px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.brand h1,
+.brand p,
+.panel h2,
+.topbar p {
+  margin: 0;
+}
+
+.brand h1 {
+  font-size: 19px;
+  line-height: 1.15;
+}
+
+.brand p,
+.topbar p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.panel h2 {
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.file-button {
+  display: grid;
+  place-items: center;
+  padding: 0 12px;
+  text-align: center;
+}
+
+.file-button input {
+  display: none;
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.compact {
+  min-height: 36px;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.tool-button.is-active,
+.mode-toggle button.is-active {
+  border-color: var(--accent);
+  background: rgba(84, 195, 177, 0.18);
+  color: #c9fff7;
+}
+
+.danger-button {
+  color: #ffd2d2;
+}
+
+.danger-button:hover {
+  border-color: var(--danger);
+}
+
+.properties {
+  display: grid;
+  gap: 10px;
+}
+
+.properties label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.properties input,
+.properties select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #11151a;
+  color: var(--text);
+}
+
+.element-list-panel {
+  min-height: 160px;
+}
+
+.element-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.element-list button {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.element-list button.is-selected {
+  border-color: var(--accent-2);
+  background: rgba(242, 184, 75, 0.13);
+}
+
+.workspace {
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #16191d;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-toggle button {
+  min-width: 92px;
+}
+
+.canvas-host {
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  overflow: auto;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.025) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.025) 75%);
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-size: 20px 20px;
+}
+
+#deviceCanvas {
+  width: min(100%, 1280px);
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #07090b;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.38);
+}

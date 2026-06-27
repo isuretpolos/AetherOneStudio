@@ -376,9 +376,19 @@ This should be sufficient for typical device panels with dozens or hundreds of e
 
 ## Development Status
 
-Preliminary concept.
+Phase 1 implementation has started with a dependency-free browser prototype.
 
-No stable implementation yet.
+Open `index.html` in a browser to try the first editor slice:
+
+* Default prototype image loading
+* Image import
+* Rectangle, circle, and polygon interaction zones
+* Region selection and dragging
+* Element ID, label, and type editing
+* Basic edit/simulation mode switch
+* Project JSON import and export
+
+The intended production stack remains Tauri + Angular + TypeScript + Konva.js. This initial prototype keeps the UX and data model moving while the desktop scaffold is prepared.
 
 ## Disclaimer
 

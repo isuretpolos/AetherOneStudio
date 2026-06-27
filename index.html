@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AetherOne Studio</title>
+    <link rel="stylesheet" href="src/app/styles.css" />
+  </head>
+  <body>
+    <main class="studio-shell">
+      <aside class="sidebar">
+        <header class="brand">
+          <span class="brand-mark">A1</span>
+          <div>
+            <h1>AetherOne Studio</h1>
+            <p>Virtual device editor</p>
+          </div>
+        </header>
+
+        <section class="panel">
+          <h2>Project</h2>
+          <label class="file-button">
+            Import image
+            <input id="imageInput" type="file" accept="image/*" />
+          </label>
+          <div class="button-row">
+            <button id="exportButton" type="button">Export JSON</button>
+            <label class="file-button compact">
+              Import JSON
+              <input id="projectInput" type="file" accept="application/json,.json" />
+            </label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Tools</h2>
+          <div class="tool-grid" role="group" aria-label="Drawing tools">
+            <button class="tool-button is-active" type="button" data-tool="select">Select</button>
+            <button class="tool-button" type="button" data-tool="rect">Rectangle</button>
+            <button class="tool-button" type="button" data-tool="circle">Circle</button>
+            <button class="tool-button" type="button" data-tool="polygon">Polygon</button>
+          </div>
+          <button id="deleteButton" class="danger-button" type="button" disabled>Delete selected</button>
+        </section>
+
+        <section class="panel">
+          <h2>Selected Element</h2>
+          <form id="propertiesForm" class="properties">
+            <label>
+              ID
+              <input id="elementId" name="id" type="text" disabled />
+            </label>
+            <label>
+              Label
+              <input id="elementLabel" name="label" type="text" disabled />
+            </label>
+            <label>
+              Type
+              <select id="elementType" name="type" disabled>
+                <option value="button">Button</option>
+                <option value="toggle">Toggle switch</option>
+                <option value="knob">Rotary knob</option>
+                <option value="slider">Slider</option>
+                <option value="led">LED</option>
+                <option value="meter">Meter</option>
+                <option value="well">Well</option>
+                <option value="display">Text display</option>
+                <option value="resonance">Resonance indicator</option>
+              </select>
+            </label>
+          </form>
+        </section>
+
+        <section class="panel element-list-panel">
+          <h2>Elements</h2>
+          <ol id="elementList" class="element-list"></ol>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div class="topbar">
+          <div class="mode-toggle" role="group" aria-label="Mode">
+            <button id="editModeButton" class="is-active" type="button">Edit</button>
+            <button id="simulateModeButton" type="button">Simulate</button>
+          </div>
+          <p id="statusText">Draw regions on the panel image.</p>
+        </div>
+
+        <div id="canvasHost" class="canvas-host">
+          <canvas id="deviceCanvas" width="1280" height="860"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <script src="src/app/main.js" type="module"></script>
+  </body>
+</html>
