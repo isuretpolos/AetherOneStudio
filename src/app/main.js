@@ -15,6 +15,7 @@ const validationList = document.querySelector("#validationList");
 const resetSessionButton = document.querySelector("#resetSessionButton");
 const sessionMode = document.querySelector("#sessionMode");
 const sessionEventCount = document.querySelector("#sessionEventCount");
+const sessionBlockedCount = document.querySelector("#sessionBlockedCount");
 const eventLog = document.querySelector("#eventLog");
 const editModeButton = document.querySelector("#editModeButton");
 const simulateModeButton = document.querySelector("#simulateModeButton");
@@ -42,6 +43,7 @@ const state = {
   session: {
     mode: "idle",
     events: [],
+    blockedCount: 0,
   },
 };
 
@@ -450,8 +452,8 @@ function drawElement(element) {
   const active = element.flashUntil && element.flashUntil > performance.now();
   const typeStyle = getElementTypeStyle(element);
   drawHitArea(element.hitArea, {
-    stroke: active ? "#fff4a3" : selected ? "#f2b84b" : typeStyle.stroke,
-    fill: active ? "rgba(255, 244, 163, 0.26)" : selected ? "rgba(242, 184, 75, 0.18)" : typeStyle.fill,
+    stroke: active ? getFlashStyle(element).stroke : selected ? "#f2b84b" : typeStyle.stroke,
+    fill: active ? getFlashStyle(element).fill : selected ? "rgba(242, 184, 75, 0.18)" : typeStyle.fill,
     lineWidth: selected ? 3 : 2,
   });
   drawLabel(element);
@@ -574,10 +576,12 @@ function renderElementList() {
 function renderSession() {
   sessionMode.textContent = titleCase(state.session.mode);
   sessionEventCount.textContent = String(state.session.events.length);
+  sessionBlockedCount.textContent = String(state.session.blockedCount);
   eventLog.replaceChildren();
 
   state.session.events.slice(0, 12).forEach((event) => {
     const item = document.createElement("li");
+    item.classList.toggle("is-blocked", event.kind === "blocked");
     const title = document.createElement("strong");
     title.textContent = event.label;
     const detail = document.createElement("span");
@@ -633,6 +637,14 @@ function validateDevice() {
     }
   });
 
+  if (state.elements.length > 0 && !state.elements.some((element) => element.type === "toggle")) {
+    messages.push("Add a toggle element if this device should require power before operation.");
+  }
+
+  if (state.elements.some((element) => element.type === "button") && !state.elements.some((element) => element.type === "well")) {
+    messages.push("Add a well element to simulate witness/content prerequisites for button actions.");
+  }
+
   ids.forEach((count, id) => {
     if (id && count > 1) {
       messages.push(`Duplicate element ID: ${id}.`);
@@ -642,17 +654,27 @@ function validateDevice() {
   return messages;
 }
 
-function flashElement(id) {
+function flashElement(id, kind = "active") {
   const element = state.elements.find((item) => item.id === id);
   if (!element) return;
   element.flashUntil = performance.now() + 260;
+  element.flashKind = kind;
   render();
-  window.setTimeout(render, 280);
+  window.setTimeout(() => {
+    delete element.flashKind;
+    render();
+  }, 280);
 }
 
 function triggerElement(element) {
   state.selectedId = element.id;
   element.runtime = element.runtime || createRuntimeState(element.type);
+  const ruleResult = evaluateRules(element);
+
+  if (!ruleResult.allowed) {
+    blockElement(element, ruleResult.reason);
+    return;
+  }
 
   if (element.type === "toggle") {
     element.runtime.on = !element.runtime.on;
@@ -684,18 +706,53 @@ function triggerElement(element) {
   renderSession();
 }
 
-function logEvent(element, detail) {
+function blockElement(element, reason) {
+  state.session.blockedCount += 1;
+  state.session.mode = "blocked";
+  logEvent(element, reason, "blocked");
+  setStatus(`${element.label || element.id}: blocked - ${reason}`);
+  flashElement(element.id, "blocked");
+  renderElementList();
+  renderSession();
+}
+
+function evaluateRules(element) {
+  if (element.type === "toggle" || state.elements.length === 1) {
+    return { allowed: true };
+  }
+
+  const powerToggle = state.elements.find((candidate) => candidate.type === "toggle");
+  if (powerToggle && !powerToggle.runtime?.on) {
+    return { allowed: false, reason: "Power is off." };
+  }
+
+  const hasAnyWell = state.elements.some((candidate) => candidate.type === "well");
+  const hasLoadedWell = state.elements.some((candidate) => candidate.type === "well" && candidate.runtime?.hasContent);
+  const requiresWell = element.type === "button" || element.type === "resonance" || element.type === "meter";
+  if (requiresWell && hasAnyWell && !hasLoadedWell) {
+    return { allowed: false, reason: "Load a well before this operation." };
+  }
+
+  if (state.session.mode === "blocked") {
+    state.session.mode = powerToggle?.runtime?.on ? "powered" : "idle";
+  }
+
+  return { allowed: true };
+}
+
+function logEvent(element, detail, kind = "info") {
   const now = new Date();
   state.session.events.unshift({
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
     label: element.label || element.id,
     detail,
+    kind,
   });
 }
 
 function resetSession() {
-  state.session = { mode: "idle", events: [] };
+  state.session = { mode: "idle", events: [], blockedCount: 0 };
   state.elements.forEach((element) => {
     element.runtime = createRuntimeState(element.type);
     delete element.flashUntil;
@@ -752,6 +809,14 @@ function getElementTypeStyle(element) {
   }
 
   return { stroke: "#54c3b1", fill: "rgba(84, 195, 177, 0.14)" };
+}
+
+function getFlashStyle(element) {
+  if (element.flashKind === "blocked") {
+    return { stroke: "#e05f5f", fill: "rgba(224, 95, 95, 0.26)" };
+  }
+
+  return { stroke: "#fff4a3", fill: "rgba(255, 244, 163, 0.26)" };
 }
 
 function drawRuntimeState(element) {
