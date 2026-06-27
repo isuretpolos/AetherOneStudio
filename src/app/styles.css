@@ -146,7 +146,8 @@ button:disabled {
 }
 
 .tool-button.is-active,
-.mode-toggle button.is-active {
+.mode-toggle button.is-active,
+.zoom-controls button.is-active {
   border-color: var(--accent);
   background: rgba(84, 195, 177, 0.18);
   color: #c9fff7;
@@ -187,7 +188,8 @@ button:disabled {
   min-height: 160px;
 }
 
-.element-list {
+.element-list,
+.validation-list {
   display: grid;
   gap: 6px;
   margin: 0;
@@ -205,6 +207,30 @@ button:disabled {
 .element-list button.is-selected {
   border-color: var(--accent-2);
   background: rgba(242, 184, 75, 0.13);
+}
+
+.validation-panel {
+  min-height: 96px;
+}
+
+.validation-list li {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #11151a;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.validation-list li.is-ok {
+  border-color: rgba(84, 195, 177, 0.45);
+  color: #c9fff7;
+}
+
+.validation-list li.is-warning {
+  border-color: rgba(242, 184, 75, 0.5);
+  color: #ffe0a1;
 }
 
 .workspace {
@@ -228,8 +254,20 @@ button:disabled {
   gap: 8px;
 }
 
-.mode-toggle button {
+.mode-toggle button,
+.zoom-controls button {
   min-width: 92px;
+}
+
+.zoom-controls {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.zoom-controls button {
+  min-width: 44px;
+  padding: 0 10px;
 }
 
 .canvas-host {

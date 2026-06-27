@@ -384,7 +384,10 @@ Open `index.html` in a browser to try the first editor slice:
 * Image import
 * Rectangle, circle, and polygon interaction zones
 * Region selection and dragging
+* Resize handles for rectangles, circles, and polygon vertices
 * Element ID, label, and type editing
+* Canvas fit, zoom in, zoom out, and 100% controls
+* Basic validation for missing regions, duplicate IDs, empty labels, and tiny hit areas
 * Basic edit/simulation mode switch
 * Project JSON import and export
 
