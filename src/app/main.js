@@ -24,6 +24,8 @@ const providesPower = document.querySelector("#providesPower");
 const requiresPower = document.querySelector("#requiresPower");
 const requiresWell = document.querySelector("#requiresWell");
 const rotateGraphics = document.querySelector("#rotateGraphics");
+const transformGraphics = document.querySelector("#transformGraphics");
+const transformVertical = document.querySelector("#transformVertical");
 const showValue = document.querySelector("#showValue");
 const valueStep = document.querySelector("#valueStep");
 const valueMin = document.querySelector("#valueMin");
@@ -156,6 +158,8 @@ propertiesForm.addEventListener("input", (event) => {
     selected.behavior.requiresPower = requiresPower.checked;
     selected.behavior.requiresWell = requiresWell.checked;
     selected.behavior.rotateGraphics = rotateGraphics.checked;
+    selected.behavior.transformGraphics = transformGraphics.checked;
+    selected.behavior.transformVertical = transformVertical.checked;
     selected.behavior.showValue = showValue.checked;
     selected.behavior.step = clampNumber(Number(valueStep.value), 1, 100, selected.behavior.step || getDefaultStep(selected.type));
     if (usesRangeValue(selected.type)) {
@@ -630,6 +634,7 @@ function drawElement(element) {
   const active = element.flashUntil && element.flashUntil > performance.now();
   const typeStyle = getElementTypeStyle(element);
   drawRotatingGraphic(element);
+  drawTransformedGraphic(element);
   drawHitArea(element.hitArea, {
     stroke: active ? getFlashStyle(element).stroke : selected ? "#f2b84b" : typeStyle.stroke,
     fill: active ? getFlashStyle(element).fill : selected ? "rgba(242, 184, 75, 0.18)" : typeStyle.fill,
@@ -677,6 +682,20 @@ function drawRotatingGraphic(element) {
   clipHitArea(element.hitArea);
   ctx.translate(center.x, center.y);
   ctx.rotate(angle);
+  ctx.drawImage(state.background, -center.x, -center.y, canvas.width, canvas.height);
+  ctx.restore();
+}
+
+function drawTransformedGraphic(element) {
+  if (state.mode !== "simulate" || element.type !== "toggle" || !element.behavior?.transformGraphics || !element.runtime?.on || !state.background.complete) return;
+
+  const center = getHitAreaCenter(element.hitArea);
+  const scaleX = element.behavior.transformVertical ? 1 : -1;
+  const scaleY = element.behavior.transformVertical ? -1 : 1;
+  ctx.save();
+  clipHitArea(element.hitArea);
+  ctx.translate(center.x, center.y);
+  ctx.scale(scaleX, scaleY);
   ctx.drawImage(state.background, -center.x, -center.y, canvas.width, canvas.height);
   ctx.restore();
 }
@@ -763,7 +782,7 @@ function renderProperties() {
   [elementId, elementLabel, elementType].forEach((input) => {
     input.disabled = disabled;
   });
-  [behaviorAction, providesPower, requiresPower, requiresWell, rotateGraphics, showValue, valueStep, valueMin, valueMax, arcMin, arcMax].forEach((input) => {
+  [behaviorAction, providesPower, requiresPower, requiresWell, rotateGraphics, transformGraphics, transformVertical, showValue, valueStep, valueMin, valueMax, arcMin, arcMax].forEach((input) => {
     input.disabled = disabled;
   });
   deleteButton.disabled = disabled;
@@ -777,10 +796,14 @@ function renderProperties() {
   requiresPower.checked = Boolean(behavior.requiresPower);
   requiresWell.checked = Boolean(behavior.requiresWell);
   rotateGraphics.checked = Boolean(behavior.rotateGraphics);
+  transformGraphics.checked = Boolean(behavior.transformGraphics);
+  transformVertical.checked = Boolean(behavior.transformVertical);
   showValue.checked = Boolean(behavior.showValue);
   valueStep.value = behavior.step || getDefaultStep(selected?.type || "button");
   valueStep.disabled = disabled || !usesStepValue(selected?.type);
   rotateGraphics.disabled = disabled || selected?.type !== "knob";
+  transformGraphics.disabled = disabled || selected?.type !== "toggle";
+  transformVertical.disabled = disabled || selected?.type !== "toggle" || !behavior.transformGraphics;
   valueMin.value = getBehaviorMin(selected || { type: "button", behavior });
   valueMax.value = getBehaviorMax(selected || { type: "button", behavior });
   arcMin.value = getBehaviorArcMin(selected || { type: "button", behavior });
@@ -1110,6 +1133,8 @@ function createDefaultBehavior(type, element = null, hasPowerProvider = Boolean(
     requiresPower: !providesPower,
     requiresWell: type === "button" || type === "meter" || type === "resonance",
     rotateGraphics: false,
+    transformGraphics: false,
+    transformVertical: false,
     showValue: true,
     action: "default",
     min: getDefaultMin(type),

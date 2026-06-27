@@ -390,6 +390,7 @@ Open `index.html` in a browser to try the first editor slice:
 * Fast element copying and mouse-position paste with grouped ID numbering
 * Rotary knob min, max, step, and arc configuration
 * Optional rotary knob background-graphic rotation
+* Optional toggle switch background-graphic mirroring
 * Canvas fit, zoom in, zoom out, and 100% controls
 * Basic validation for missing regions, duplicate IDs, and tiny hit areas
 * Basic edit/simulation mode switch
