@@ -23,7 +23,10 @@ const behaviorAction = document.querySelector("#behaviorAction");
 const providesPower = document.querySelector("#providesPower");
 const requiresPower = document.querySelector("#requiresPower");
 const requiresWell = document.querySelector("#requiresWell");
+const rotateGraphics = document.querySelector("#rotateGraphics");
 const valueStep = document.querySelector("#valueStep");
+const valueMin = document.querySelector("#valueMin");
+const valueMax = document.querySelector("#valueMax");
 const validationList = document.querySelector("#validationList");
 const resetSessionButton = document.querySelector("#resetSessionButton");
 const sessionMode = document.querySelector("#sessionMode");
@@ -56,6 +59,7 @@ const state = {
   elements: [],
   selectedId: null,
   zoom: "fit",
+  hoveredId: null,
   draft: null,
   drag: null,
   resize: null,
@@ -113,6 +117,8 @@ canvas.addEventListener("pointerdown", onPointerDown);
 canvas.addEventListener("pointermove", onPointerMove);
 canvas.addEventListener("pointerup", onPointerUp);
 canvas.addEventListener("pointerleave", onPointerUp);
+canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
+canvas.addEventListener("contextmenu", onCanvasContextMenu);
 canvas.addEventListener("dblclick", finishPolygon);
 window.addEventListener("resize", updateCanvasScale);
 window.addEventListener("keydown", onKeyDown);
@@ -144,7 +150,14 @@ propertiesForm.addEventListener("input", (event) => {
     selected.behavior.providesPower = providesPower.checked;
     selected.behavior.requiresPower = requiresPower.checked;
     selected.behavior.requiresWell = requiresWell.checked;
+    selected.behavior.rotateGraphics = rotateGraphics.checked;
     selected.behavior.step = clampNumber(Number(valueStep.value), 1, 100, selected.behavior.step || getDefaultStep(selected.type));
+    if (usesRangeValue(selected.type)) {
+      selected.behavior.min = Number(valueMin.value);
+      selected.behavior.max = Number(valueMax.value);
+      normalizeValueRange(selected.behavior);
+      selected.runtime = clampRuntimeValue(selected);
+    }
     if (event.target === providesPower && selected.behavior.providesPower) {
       selected.behavior.requiresPower = false;
     }
@@ -191,7 +204,8 @@ function onPointerDown(event) {
     if (hit) {
       const scrollLeft = canvasHost.scrollLeft;
       const scrollTop = canvasHost.scrollTop;
-      triggerElement(hit);
+      const direction = hit.type === "knob" && event.button === 0 ? -1 : 1;
+      triggerElement(hit, { direction });
       canvasHost.scrollLeft = scrollLeft;
       canvasHost.scrollTop = scrollTop;
     }
@@ -240,6 +254,8 @@ function onPointerDown(event) {
 function onPointerMove(event) {
   event.preventDefault();
   const point = getCanvasPoint(event);
+  const hit = findElementAt(point);
+  state.hoveredId = hit?.id || null;
 
   if (state.resize) {
     const element = state.elements.find((item) => item.id === state.resize.id);
@@ -263,11 +279,14 @@ function onPointerMove(event) {
     return;
   }
 
-  canvas.style.cursor = state.mode === "edit" && state.tool === "select" && getHandleAt(point) ? "nwse-resize" : "";
+  canvas.style.cursor = getCanvasCursor(point, hit);
 }
 
 function onPointerUp(event) {
   event.preventDefault();
+  if (event.type === "pointerleave") {
+    state.hoveredId = null;
+  }
   if (state.resize) {
     state.resize = null;
     renderProperties();
@@ -295,6 +314,24 @@ function onPointerUp(event) {
   } else {
     render();
   }
+}
+
+function onCanvasWheel(event) {
+  if (state.mode !== "simulate") return;
+  const hit = findElementAt(getCanvasPoint(event));
+  if (!hit || hit.type !== "knob") return;
+
+  event.preventDefault();
+  state.hoveredId = hit.id;
+  triggerElement(hit, { direction: event.deltaY < 0 ? 1 : -1 });
+}
+
+function onCanvasContextMenu(event) {
+  if (state.mode !== "simulate") return;
+  const hit = findElementAt(getCanvasPoint(event));
+  if (!hit || hit.type !== "knob") return;
+
+  event.preventDefault();
 }
 
 function addElement(hitArea) {
@@ -552,6 +589,7 @@ function drawElement(element) {
   const selected = element.id === state.selectedId;
   const active = element.flashUntil && element.flashUntil > performance.now();
   const typeStyle = getElementTypeStyle(element);
+  drawRotatingGraphic(element);
   drawHitArea(element.hitArea, {
     stroke: active ? getFlashStyle(element).stroke : selected ? "#f2b84b" : typeStyle.stroke,
     fill: active ? getFlashStyle(element).fill : selected ? "rgba(242, 184, 75, 0.18)" : typeStyle.fill,
@@ -588,6 +626,41 @@ function drawHitArea(hitArea, style) {
   ctx.fill();
   ctx.stroke();
   ctx.restore();
+}
+
+function drawRotatingGraphic(element) {
+  if (element.type !== "knob" || !element.behavior?.rotateGraphics || !state.background.complete) return;
+
+  const center = getHitAreaCenter(element.hitArea);
+  const angle = getKnobRotationRadians(element);
+  ctx.save();
+  clipHitArea(element.hitArea);
+  ctx.translate(center.x, center.y);
+  ctx.rotate(angle);
+  ctx.drawImage(state.background, -center.x, -center.y, canvas.width, canvas.height);
+  ctx.restore();
+}
+
+function clipHitArea(hitArea) {
+  ctx.beginPath();
+
+  if (hitArea.shape === "rect") {
+    ctx.rect(hitArea.x, hitArea.y, hitArea.w, hitArea.h);
+  }
+
+  if (hitArea.shape === "circle") {
+    ctx.arc(hitArea.x, hitArea.y, hitArea.radius, 0, Math.PI * 2);
+  }
+
+  if (hitArea.shape === "polygon") {
+    hitArea.points.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.closePath();
+  }
+
+  ctx.clip();
 }
 
 function drawLabel(element) {
@@ -648,7 +721,7 @@ function renderProperties() {
   [elementId, elementLabel, elementType].forEach((input) => {
     input.disabled = disabled;
   });
-  [behaviorAction, providesPower, requiresPower, requiresWell, valueStep].forEach((input) => {
+  [behaviorAction, providesPower, requiresPower, requiresWell, rotateGraphics, valueStep, valueMin, valueMax].forEach((input) => {
     input.disabled = disabled;
   });
   deleteButton.disabled = disabled;
@@ -661,8 +734,14 @@ function renderProperties() {
   providesPower.checked = Boolean(behavior.providesPower);
   requiresPower.checked = Boolean(behavior.requiresPower);
   requiresWell.checked = Boolean(behavior.requiresWell);
+  rotateGraphics.checked = Boolean(behavior.rotateGraphics);
   valueStep.value = behavior.step || getDefaultStep(selected?.type || "button");
   valueStep.disabled = disabled || !usesStepValue(selected?.type);
+  rotateGraphics.disabled = disabled || selected?.type !== "knob";
+  valueMin.value = getBehaviorMin(selected || { type: "button", behavior });
+  valueMax.value = getBehaviorMax(selected || { type: "button", behavior });
+  valueMin.disabled = disabled || !usesRangeValue(selected?.type);
+  valueMax.disabled = disabled || !usesRangeValue(selected?.type);
 }
 
 function renderManifest() {
@@ -775,6 +854,14 @@ function validateDevice() {
     if (!isUsefulHitArea(element.hitArea)) {
       messages.push(`${element.id || "Unnamed element"} has a region that is too small.`);
     }
+
+    if (element.type === "knob") {
+      const min = getBehaviorMin(element);
+      const max = getBehaviorMax(element);
+      if (max <= min) {
+        messages.push(`${element.id || "Unnamed knob"} needs a max value greater than min.`);
+      }
+    }
   });
 
   if (state.elements.length > 0 && state.elements.some((element) => element.behavior?.requiresPower) && !getPowerProvider()) {
@@ -810,7 +897,7 @@ function flashElement(id, kind = "active") {
   }, 280);
 }
 
-function triggerElement(element) {
+function triggerElement(element, options = {}) {
   state.selectedId = element.id;
   element.runtime = element.runtime || createRuntimeState(element.type);
   const ruleResult = evaluateRules(element);
@@ -829,7 +916,7 @@ function triggerElement(element) {
     } else if (element.type === "display") {
       element.runtime.text = getRuntimeSummary(element).toUpperCase();
     } else if (typeof element.runtime.value === "number") {
-      element.runtime.value = wrapValue((element.runtime.value || 0) + getBehaviorStep(element), 0, 100);
+      element.runtime = adjustValueRuntime(element, options.direction || 1);
     } else if (element.type === "button") {
       element.runtime.presses = (element.runtime.presses || 0) + 1;
     }
@@ -841,10 +928,10 @@ function triggerElement(element) {
     element.runtime.hasContent = !element.runtime.hasContent;
     logEvent(element, element.runtime.hasContent ? "Virtual content placed." : "Virtual content removed.");
   } else if (element.type === "knob") {
-    element.runtime.value = wrapValue((element.runtime.value || 0) + getBehaviorStep(element), 0, 100);
+    element.runtime = adjustValueRuntime(element, options.direction || 1);
     logEvent(element, `Value set to ${element.runtime.value}.`);
   } else if (element.type === "slider" || element.type === "meter" || element.type === "resonance") {
-    element.runtime.value = wrapValue((element.runtime.value || 0) + getBehaviorStep(element), 0, 100);
+    element.runtime = adjustValueRuntime(element, options.direction || 1);
     logEvent(element, `Level set to ${element.runtime.value}.`);
   } else if (element.type === "led") {
     element.runtime.on = !element.runtime.on;
@@ -979,7 +1066,10 @@ function createDefaultBehavior(type, element = null, hasPowerProvider = Boolean(
     providesPower,
     requiresPower: !providesPower,
     requiresWell: type === "button" || type === "meter" || type === "resonance",
+    rotateGraphics: false,
     action: "default",
+    min: getDefaultMin(type),
+    max: getDefaultMax(type),
     step: getDefaultStep(type),
   };
 }
@@ -1095,12 +1185,67 @@ function getDefaultStep(type) {
   return 1;
 }
 
+function getDefaultMin(type) {
+  return type === "knob" ? 0 : 0;
+}
+
+function getDefaultMax(type) {
+  return type === "knob" ? 100 : 100;
+}
+
 function usesStepValue(type) {
   return type === "knob" || type === "slider" || type === "meter" || type === "resonance";
 }
 
+function usesRangeValue(type) {
+  return type === "knob";
+}
+
 function getBehaviorStep(element) {
-  return clampNumber(Number(element.behavior?.step), 1, 100, getDefaultStep(element.type));
+  const range = getBehaviorMax(element) - getBehaviorMin(element);
+  return clampNumber(Number(element.behavior?.step), 1, Math.max(1, range), getDefaultStep(element.type));
+}
+
+function getBehaviorMin(element) {
+  return Number.isFinite(Number(element?.behavior?.min)) ? Number(element.behavior.min) : getDefaultMin(element?.type);
+}
+
+function getBehaviorMax(element) {
+  return Number.isFinite(Number(element?.behavior?.max)) ? Number(element.behavior.max) : getDefaultMax(element?.type);
+}
+
+function normalizeValueRange(behavior) {
+  if (!Number.isFinite(Number(behavior.min))) {
+    behavior.min = 0;
+  }
+
+  if (!Number.isFinite(Number(behavior.max))) {
+    behavior.max = 100;
+  }
+
+  behavior.min = Math.round(Number(behavior.min));
+  behavior.max = Math.round(Number(behavior.max));
+
+  if (behavior.max <= behavior.min) {
+    behavior.max = behavior.min + 1;
+  }
+
+  behavior.step = clampNumber(Number(behavior.step), 1, Math.max(1, behavior.max - behavior.min), getDefaultStep("knob"));
+  return behavior;
+}
+
+function adjustValueRuntime(element, direction = 1) {
+  const runtime = element.runtime || createRuntimeState(element.type);
+  const min = getBehaviorMin(element);
+  const max = getBehaviorMax(element);
+  const nextValue = clampNumber(Number(runtime.value) + getBehaviorStep(element) * direction, min, max, min);
+  return { ...runtime, value: nextValue };
+}
+
+function clampRuntimeValue(element) {
+  const runtime = element.runtime || createRuntimeState(element.type);
+  if (typeof runtime.value !== "number") return runtime;
+  return { ...runtime, value: clampNumber(runtime.value, getBehaviorMin(element), getBehaviorMax(element), getBehaviorMin(element)) };
 }
 
 function normalizeElements(elements) {
@@ -1119,6 +1264,9 @@ function normalizeElement(element, hasPowerProvider = Boolean(getPowerProvider()
   const rawBehavior = element.behavior || {};
   const hasExplicitPowerProvider = Object.hasOwn(rawBehavior, "providesPower");
   const behavior = { ...createDefaultBehavior(type, null, hasPowerProvider), ...rawBehavior };
+  if (usesRangeValue(type)) {
+    normalizeValueRange(behavior);
+  }
 
   if (type === "toggle" && !hasExplicitPowerProvider) {
     behavior.providesPower = !hasPowerProvider;
@@ -1204,8 +1352,18 @@ function getRuntimeSummary(element) {
   if (element.type === "toggle" || element.type === "led") return runtime.on ? "on" : "off";
   if (element.type === "well") return runtime.hasContent ? "occupied" : "empty";
   if (element.type === "display") return runtime.text || "READY";
+  if (element.type === "knob") return String(clampNumber(Number(runtime.value), getBehaviorMin(element), getBehaviorMax(element), getBehaviorMin(element)));
   if (typeof runtime.value === "number") return `${runtime.value}%`;
   return "triggered";
+}
+
+function getKnobRotationRadians(element) {
+  const runtime = element.runtime || createRuntimeState(element.type);
+  const min = getBehaviorMin(element);
+  const max = getBehaviorMax(element);
+  const value = clampNumber(Number(runtime.value), min, max, min);
+  const ratio = max === min ? 0 : (value - min) / (max - min);
+  return (-135 + ratio * 270) * (Math.PI / 180);
 }
 
 function getElementTypeStyle(element) {
@@ -1414,6 +1572,13 @@ function getHitAreaAnchor(hitArea) {
   return { x: sum.x / hitArea.points.length, y: sum.y / hitArea.points.length };
 }
 
+function getHitAreaCenter(hitArea) {
+  if (hitArea.shape === "rect") return { x: hitArea.x + hitArea.w / 2, y: hitArea.y + hitArea.h / 2 };
+  if (hitArea.shape === "circle") return { x: hitArea.x, y: hitArea.y };
+  const sum = hitArea.points.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
+  return { x: sum.x / hitArea.points.length, y: sum.y / hitArea.points.length };
+}
+
 function getSelectedElement() {
   return state.elements.find((element) => element.id === state.selectedId);
 }
@@ -1486,6 +1651,10 @@ function updateCanvasScale() {
 }
 
 function onKeyDown(event) {
+  if (handleSimulationKey(event)) {
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     if (event.shiftKey) redoProjectChange();
@@ -1505,9 +1674,33 @@ function onKeyDown(event) {
   deleteSelected();
 }
 
+function handleSimulationKey(event) {
+  if (state.mode !== "simulate") return false;
+  if (event.key !== "+" && event.key !== "=" && event.key !== "-" && event.key !== "_") return false;
+
+  const hovered = state.elements.find((element) => element.id === state.hoveredId);
+  if (!hovered || hovered.type !== "knob") return false;
+
+  event.preventDefault();
+  triggerElement(hovered, { direction: event.key === "-" || event.key === "_" ? -1 : 1 });
+  return true;
+}
+
 function releasePointer(event) {
   if (!Number.isInteger(event?.pointerId) || !canvas.hasPointerCapture(event.pointerId)) return;
   canvas.releasePointerCapture(event.pointerId);
+}
+
+function getCanvasCursor(point, hit = findElementAt(point)) {
+  if (state.mode === "simulate") {
+    return hit?.type === "knob" ? "ew-resize" : hit ? "pointer" : "";
+  }
+
+  if (state.mode === "edit" && state.tool === "select" && getHandleAt(point)) {
+    return "nwse-resize";
+  }
+
+  return "";
 }
 
 function getProjectSnapshot() {

@@ -386,11 +386,14 @@ Open `index.html` in a browser to try the first editor slice:
 * Region selection and dragging
 * Resize handles for rectangles, circles, and polygon vertices
 * Element ID, label, and type editing
+* Rotary knob min, max, and step configuration
+* Optional rotary knob background-graphic rotation
 * Canvas fit, zoom in, zoom out, and 100% controls
 * Basic validation for missing regions, duplicate IDs, empty labels, and tiny hit areas
 * Basic edit/simulation mode switch
 * Simulation session panel with reset and event history
 * Element-specific simulation behavior for buttons, toggles, knobs, sliders, wells, LEDs, meters, displays, and resonance indicators
+* Rotary knob simulation by mouse wheel, keyboard +/-, and left/right click
 * Basic simulation rule blocking with visible rejected events, blocked counters, and power/well prerequisites
 * Per-element behavior options for simulation operations, power providers, power requirements, loaded-well requirements, and numeric simulation step size
 * Start/complete simulation operations with completed operation tracking
