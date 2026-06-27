@@ -27,6 +27,8 @@ const rotateGraphics = document.querySelector("#rotateGraphics");
 const valueStep = document.querySelector("#valueStep");
 const valueMin = document.querySelector("#valueMin");
 const valueMax = document.querySelector("#valueMax");
+const arcMin = document.querySelector("#arcMin");
+const arcMax = document.querySelector("#arcMax");
 const validationList = document.querySelector("#validationList");
 const resetSessionButton = document.querySelector("#resetSessionButton");
 const sessionMode = document.querySelector("#sessionMode");
@@ -155,7 +157,10 @@ propertiesForm.addEventListener("input", (event) => {
     if (usesRangeValue(selected.type)) {
       selected.behavior.min = Number(valueMin.value);
       selected.behavior.max = Number(valueMax.value);
+      selected.behavior.arcMin = Number(arcMin.value);
+      selected.behavior.arcMax = Number(arcMax.value);
       normalizeValueRange(selected.behavior);
+      normalizeArcRange(selected.behavior);
       selected.runtime = clampRuntimeValue(selected);
     }
     if (event.target === providesPower && selected.behavior.providesPower) {
@@ -342,7 +347,7 @@ function addElement(hitArea) {
   const element = {
     id,
     type,
-    label: id,
+    label: "",
     hitArea,
     states: shape === "rect" ? ["idle", "active"] : undefined,
     initial: shape === "rect" ? "idle" : undefined,
@@ -664,8 +669,10 @@ function clipHitArea(hitArea) {
 }
 
 function drawLabel(element) {
+  const label = typeof element.label === "string" ? element.label.trim() : "";
+  if (!label) return;
+
   const anchor = getHitAreaAnchor(element.hitArea);
-  const label = element.label || element.id;
   ctx.save();
   ctx.font = "600 14px Segoe UI, Arial, sans-serif";
   const width = ctx.measureText(label).width + 16;
@@ -721,7 +728,7 @@ function renderProperties() {
   [elementId, elementLabel, elementType].forEach((input) => {
     input.disabled = disabled;
   });
-  [behaviorAction, providesPower, requiresPower, requiresWell, rotateGraphics, valueStep, valueMin, valueMax].forEach((input) => {
+  [behaviorAction, providesPower, requiresPower, requiresWell, rotateGraphics, valueStep, valueMin, valueMax, arcMin, arcMax].forEach((input) => {
     input.disabled = disabled;
   });
   deleteButton.disabled = disabled;
@@ -740,8 +747,12 @@ function renderProperties() {
   rotateGraphics.disabled = disabled || selected?.type !== "knob";
   valueMin.value = getBehaviorMin(selected || { type: "button", behavior });
   valueMax.value = getBehaviorMax(selected || { type: "button", behavior });
+  arcMin.value = getBehaviorArcMin(selected || { type: "button", behavior });
+  arcMax.value = getBehaviorArcMax(selected || { type: "button", behavior });
   valueMin.disabled = disabled || !usesRangeValue(selected?.type);
   valueMax.disabled = disabled || !usesRangeValue(selected?.type);
+  arcMin.disabled = disabled || selected?.type !== "knob";
+  arcMax.disabled = disabled || selected?.type !== "knob";
 }
 
 function renderManifest() {
@@ -845,10 +856,6 @@ function validateDevice() {
 
     if (!id) {
       messages.push("Every element needs an ID.");
-    }
-
-    if (!element.label.trim()) {
-      messages.push(`${element.id || "Unnamed element"} needs a label.`);
     }
 
     if (!isUsefulHitArea(element.hitArea)) {
@@ -1070,6 +1077,8 @@ function createDefaultBehavior(type, element = null, hasPowerProvider = Boolean(
     action: "default",
     min: getDefaultMin(type),
     max: getDefaultMax(type),
+    arcMin: getDefaultArcMin(type),
+    arcMax: getDefaultArcMax(type),
     step: getDefaultStep(type),
   };
 }
@@ -1193,6 +1202,14 @@ function getDefaultMax(type) {
   return type === "knob" ? 100 : 100;
 }
 
+function getDefaultArcMin(type) {
+  return type === "knob" ? 0 : 0;
+}
+
+function getDefaultArcMax(type) {
+  return type === "knob" ? 270 : 270;
+}
+
 function usesStepValue(type) {
   return type === "knob" || type === "slider" || type === "meter" || type === "resonance";
 }
@@ -1214,6 +1231,14 @@ function getBehaviorMax(element) {
   return Number.isFinite(Number(element?.behavior?.max)) ? Number(element.behavior.max) : getDefaultMax(element?.type);
 }
 
+function getBehaviorArcMin(element) {
+  return Number.isFinite(Number(element?.behavior?.arcMin)) ? Number(element.behavior.arcMin) : getDefaultArcMin(element?.type);
+}
+
+function getBehaviorArcMax(element) {
+  return Number.isFinite(Number(element?.behavior?.arcMax)) ? Number(element.behavior.arcMax) : getDefaultArcMax(element?.type);
+}
+
 function normalizeValueRange(behavior) {
   if (!Number.isFinite(Number(behavior.min))) {
     behavior.min = 0;
@@ -1231,6 +1256,25 @@ function normalizeValueRange(behavior) {
   }
 
   behavior.step = clampNumber(Number(behavior.step), 1, Math.max(1, behavior.max - behavior.min), getDefaultStep("knob"));
+  return behavior;
+}
+
+function normalizeArcRange(behavior) {
+  if (!Number.isFinite(Number(behavior.arcMin))) {
+    behavior.arcMin = 0;
+  }
+
+  if (!Number.isFinite(Number(behavior.arcMax))) {
+    behavior.arcMax = 270;
+  }
+
+  behavior.arcMin = Math.round(Number(behavior.arcMin));
+  behavior.arcMax = Math.round(Number(behavior.arcMax));
+
+  if (behavior.arcMax === behavior.arcMin) {
+    behavior.arcMax = behavior.arcMin + 1;
+  }
+
   return behavior;
 }
 
@@ -1266,6 +1310,7 @@ function normalizeElement(element, hasPowerProvider = Boolean(getPowerProvider()
   const behavior = { ...createDefaultBehavior(type, null, hasPowerProvider), ...rawBehavior };
   if (usesRangeValue(type)) {
     normalizeValueRange(behavior);
+    normalizeArcRange(behavior);
   }
 
   if (type === "toggle" && !hasExplicitPowerProvider) {
@@ -1275,7 +1320,7 @@ function normalizeElement(element, hasPowerProvider = Boolean(getPowerProvider()
 
   return {
     ...element,
-    label: element.label || element.id || "Element",
+    label: typeof element.label === "string" ? element.label : "",
     type,
     behavior,
     runtime: createRuntimeState(type),
@@ -1363,7 +1408,9 @@ function getKnobRotationRadians(element) {
   const max = getBehaviorMax(element);
   const value = clampNumber(Number(runtime.value), min, max, min);
   const ratio = max === min ? 0 : (value - min) / (max - min);
-  return (-135 + ratio * 270) * (Math.PI / 180);
+  const arcMin = getBehaviorArcMin(element);
+  const arcMax = getBehaviorArcMax(element);
+  return (arcMin + ratio * (arcMax - arcMin)) * (Math.PI / 180);
 }
 
 function getElementTypeStyle(element) {

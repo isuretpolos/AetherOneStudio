@@ -385,11 +385,11 @@ Open `index.html` in a browser to try the first editor slice:
 * Rectangle, circle, and polygon interaction zones
 * Region selection and dragging
 * Resize handles for rectangles, circles, and polygon vertices
-* Element ID, label, and type editing
-* Rotary knob min, max, and step configuration
+* Element ID, optional label, and type editing
+* Rotary knob min, max, step, and arc configuration
 * Optional rotary knob background-graphic rotation
 * Canvas fit, zoom in, zoom out, and 100% controls
-* Basic validation for missing regions, duplicate IDs, empty labels, and tiny hit areas
+* Basic validation for missing regions, duplicate IDs, and tiny hit areas
 * Basic edit/simulation mode switch
 * Simulation session panel with reset and event history
 * Element-specific simulation behavior for buttons, toggles, knobs, sliders, wells, LEDs, meters, displays, and resonance indicators
