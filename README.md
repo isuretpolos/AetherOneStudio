@@ -394,9 +394,10 @@ Open `index.html` in a browser to try the first editor slice:
 * Basic simulation rule blocking with visible rejected events, blocked counters, and power/well prerequisites
 * Per-element behavior options for simulation operations, power providers, power requirements, loaded-well requirements, and numeric simulation step size
 * Start/complete simulation operations with completed operation tracking
+* Operation conflict blocking for active sessions, loaded wells, and power shutdown
 * Project manifest editing for name, author, version, and description
 * Undo, redo, and saved/unsaved project state tracking
-* Project JSON import and export
+* Project JSON import and export with embedded background data, format metadata, validation, and device summary
 
 The intended production stack remains Tauri + Angular + TypeScript + Konva.js. This initial prototype keeps the UX and data model moving while the desktop scaffold is prepared.
 

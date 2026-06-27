@@ -63,6 +63,7 @@ const state = {
   nextElementNumber: 1,
   session: {
     mode: "idle",
+    activeOperation: null,
     events: [],
     blockedCount: 0,
     completed: {},
@@ -450,6 +451,12 @@ async function exportProject() {
 
   const payload = {
     manifest: normalizeManifest(state.manifest),
+    exportedAt: new Date().toISOString(),
+    app: {
+      name: "AetherOne Studio",
+      format: "aetherone-device-json",
+      formatVersion: 1,
+    },
     background: {
       src: state.backgroundExportSrc,
       width: canvas.width,
@@ -457,16 +464,17 @@ async function exportProject() {
     },
     elements: state.elements.map(serializeElement),
   };
+  payload.summary = buildProjectSummary(payload.elements, payload.background);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "aetherone-device.json";
+  link.download = getProjectFileName(payload.manifest);
   link.click();
   URL.revokeObjectURL(url);
   state.history.dirty = false;
   updateHistoryControls();
-  setStatus("Project JSON exported.");
+  setStatus(`Exported ${payload.summary.elementCount} elements to ${link.download}.`);
 }
 
 function importProject(event) {
@@ -477,13 +485,15 @@ function importProject(event) {
   reader.addEventListener("load", () => {
     try {
       const project = JSON.parse(reader.result);
+      validateProjectPayload(project);
       commitHistory();
       state.manifest = normalizeManifest(project.manifest);
       state.elements = normalizeElements(project.elements);
       state.selectedId = null;
       state.nextElementNumber = state.elements.length + 1;
       resetSession();
-      setBackgroundFromSource(project.background?.src || "src/docs/prototype.jpg", `Imported project: ${file.name}`);
+      const summary = buildProjectSummary(state.elements, project.background);
+      setBackgroundFromSource(project.background?.src || "src/docs/prototype.jpg", `Imported ${file.name}: ${summary.elementCount} elements, ${summary.operationCount} operations.`);
       renderManifest();
       renderProperties();
       renderElementList();
@@ -494,6 +504,26 @@ function importProject(event) {
     }
   });
   reader.readAsText(file);
+}
+
+function validateProjectPayload(project) {
+  if (!project || typeof project !== "object" || Array.isArray(project)) {
+    throw new Error("Project JSON must contain an object.");
+  }
+
+  if (!Array.isArray(project.elements)) {
+    throw new Error("Project JSON must contain an elements array.");
+  }
+
+  project.elements.forEach((element, index) => {
+    if (!element || typeof element !== "object") {
+      throw new Error(`Element ${index + 1} is not an object.`);
+    }
+
+    if (!element.hitArea || !element.hitArea.shape) {
+      throw new Error(`${element.id || `Element ${index + 1}`} is missing a hit area.`);
+    }
+  });
 }
 
 function render() {
@@ -845,7 +875,23 @@ function blockElement(element, reason) {
 
 function evaluateRules(element) {
   const action = getBehaviorAction(element);
-  if (element.behavior?.providesPower || (state.elements.length === 1 && action === "default")) {
+  const isPowerProvider = Boolean(element.behavior?.providesPower);
+  if (isPowerProvider) {
+    if (element.runtime?.on) {
+      const activeOperation = getActiveOperation();
+      if (activeOperation) {
+        return { allowed: false, reason: `Complete ${getActionLabel(activeOperation)} before switching power off.` };
+      }
+
+      if (hasLoadedWell()) {
+        return { allowed: false, reason: "Clear loaded wells before switching power off." };
+      }
+    }
+
+    return { allowed: true };
+  }
+
+  if (state.elements.length === 1 && action === "default") {
     return { allowed: true };
   }
 
@@ -859,11 +905,16 @@ function evaluateRules(element) {
     return { allowed: false, reason: "Power is off." };
   }
 
-  const hasAnyWell = state.elements.some((candidate) => candidate.type === "well");
-  const hasLoadedWell = state.elements.some((candidate) => candidate.type === "well" && candidate.runtime?.hasContent);
   const requiresWell = Boolean(element.behavior?.requiresWell);
-  if (requiresWell && hasAnyWell && !hasLoadedWell) {
+  if (requiresWell && hasAnyWell() && !hasLoadedWell()) {
     return { allowed: false, reason: "Load a well before this operation." };
+  }
+
+  const activeOperation = getActiveOperation();
+  const completingOperation = action !== "default" && activeOperation === action;
+  const interruptingOperation = action !== "default" && activeOperation && !completingOperation;
+  if (interruptingOperation && !(activeOperation === "broadcast" && action === "neutralize")) {
+    return { allowed: false, reason: `Complete ${getActionLabel(activeOperation)} before starting ${getActionLabel(action)}.` };
   }
 
   if (action === "broadcast" && state.session.mode === "diagnosis") {
@@ -893,7 +944,7 @@ function logEvent(element, detail, kind = "info") {
 }
 
 function resetSession() {
-  state.session = { mode: "idle", events: [], blockedCount: 0, completed: {} };
+  state.session = { mode: "idle", activeOperation: null, events: [], blockedCount: 0, completed: {} };
   state.elements.forEach((element) => {
     element.runtime = createRuntimeState(element.type);
     delete element.flashUntil;
@@ -937,29 +988,46 @@ function getBehaviorAction(element) {
   return element.behavior?.action || "default";
 }
 
+function getActiveOperation() {
+  if (state.session.activeOperation) {
+    return state.session.activeOperation;
+  }
+
+  const modes = {
+    scanning: "scan",
+    diagnosis: "diagnosis",
+    broadcasting: "broadcast",
+    neutralizing: "neutralize",
+  };
+  return modes[state.session.mode] || null;
+}
+
 function applyBehaviorAction(element) {
   const action = getBehaviorAction(element);
   if (action === "default") return false;
 
   if (action === "scan") {
-    const completing = state.session.mode === "scanning";
+    const completing = getActiveOperation() === action;
     state.session.mode = completing ? getPoweredSessionMode() : "scanning";
+    state.session.activeOperation = completing ? null : action;
     state.session.completed.scan = completing || state.session.completed.scan;
     logEvent(element, completing ? "Scan completed." : "Scan started.");
     return true;
   }
 
   if (action === "diagnosis") {
-    const completing = state.session.mode === "diagnosis";
+    const completing = getActiveOperation() === action;
     state.session.mode = completing ? getPoweredSessionMode() : "diagnosis";
+    state.session.activeOperation = completing ? null : action;
     state.session.completed.diagnosis = completing || state.session.completed.diagnosis;
     logEvent(element, completing ? "Diagnosis completed." : "Diagnosis mode active.");
     return true;
   }
 
   if (action === "broadcast") {
-    const completing = state.session.mode === "broadcasting";
+    const completing = getActiveOperation() === action;
     state.session.mode = completing ? getPoweredSessionMode() : "broadcasting";
+    state.session.activeOperation = completing ? null : action;
     if (completing) {
       state.session.completed.broadcast = true;
       logEvent(element, "Broadcast completed.");
@@ -970,8 +1038,9 @@ function applyBehaviorAction(element) {
   }
 
   if (action === "neutralize") {
-    const completing = state.session.mode === "neutralizing";
+    const completing = getActiveOperation() === action;
     state.session.mode = completing ? getPoweredSessionMode() : "neutralizing";
+    state.session.activeOperation = completing ? null : action;
     state.session.completed.neutralize = completing || state.session.completed.neutralize;
     logEvent(element, completing ? "Neutralize completed." : "Neutralize sequence started.");
     return true;
@@ -1010,6 +1079,14 @@ function getActionLabel(action) {
 
 function getPowerProvider(except = null) {
   return state.elements.find((element) => element !== except && element.behavior?.providesPower);
+}
+
+function hasAnyWell() {
+  return state.elements.some((element) => element.type === "well");
+}
+
+function hasLoadedWell() {
+  return state.elements.some((element) => element.type === "well" && element.runtime?.hasContent);
 }
 
 function getDefaultStep(type) {
@@ -1060,6 +1137,66 @@ function normalizeElement(element, hasPowerProvider = Boolean(getPowerProvider()
 function serializeElement(element) {
   const { flashUntil, runtime, ...projectElement } = element;
   return projectElement;
+}
+
+function buildProjectSummary(elements = state.elements, background = { width: canvas.width, height: canvas.height }) {
+  const serializableElements = elements.map((element) => ("runtime" in element ? serializeElement(element) : element));
+  const typeCounts = {};
+  const operationCounts = {};
+  const powerProviderIds = [];
+  let requiresPowerCount = 0;
+  let requiresWellCount = 0;
+
+  serializableElements.forEach((element) => {
+    const type = element.type || "unknown";
+    const action = element.behavior?.action || "default";
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+
+    if (action !== "default") {
+      operationCounts[action] = (operationCounts[action] || 0) + 1;
+    }
+
+    if (element.behavior?.providesPower) {
+      powerProviderIds.push(element.id);
+    }
+
+    if (element.behavior?.requiresPower) {
+      requiresPowerCount += 1;
+    }
+
+    if (element.behavior?.requiresWell) {
+      requiresWellCount += 1;
+    }
+  });
+
+  return {
+    elementCount: serializableElements.length,
+    operationCount: Object.values(operationCounts).reduce((total, count) => total + count, 0),
+    typeCounts,
+    operationCounts,
+    powerProviderIds,
+    requiresPowerCount,
+    requiresWellCount,
+    canvas: {
+      width: Number(background?.width) || canvas.width,
+      height: Number(background?.height) || canvas.height,
+    },
+  };
+}
+
+function getProjectFileName(manifest) {
+  const name = slugify(manifest.name || "aetherone-device");
+  const version = slugify(manifest.version || "0.1.0");
+  return `${name}-${version}.json`;
+}
+
+function slugify(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64) || "aetherone-device";
 }
 
 function getRuntimeSummary(element) {
