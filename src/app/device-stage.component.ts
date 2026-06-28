@@ -30,9 +30,56 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
   private transformer?: Konva.Transformer;
   private backgroundImage?: HTMLImageElement;
   private draft: { shape: 'rect' | 'circle'; start: Point; end: Point } | null = null;
+  private pan:
+    | {
+        pointerId?: number;
+        startClient: Point;
+        startOffset: Point;
+      }
+    | null = null;
+  private viewportOffset: Point = { x: 0, y: 0 };
   private backgroundNode?: Konva.Image;
   private selectedNode?: Konva.Shape;
   private readonly resizeObserver = new ResizeObserver(() => this.resizeStage());
+  private readonly onNativePointerDown = (event: PointerEvent) => {
+    if (event.button !== 1) return;
+    this.beginPan(event);
+    event.stopPropagation();
+  };
+  private readonly onNativePointerMove = (event: PointerEvent) => {
+    if (!this.pan && event.buttons & 4 && this.isInStage(event.target)) {
+      this.beginPan(event);
+    }
+    if (!this.pan || (this.pan.pointerId !== undefined && event.pointerId !== this.pan.pointerId)) return;
+    this.updatePan(event);
+    event.preventDefault();
+  };
+  private readonly onNativePointerUp = (event: PointerEvent) => {
+    if (!this.pan || (this.pan.pointerId !== undefined && event.pointerId !== this.pan.pointerId)) return;
+    this.endPan(event);
+    event.preventDefault();
+  };
+  private readonly onNativeMouseDown = (event: MouseEvent) => {
+    if (event.button !== 1 || !this.isInStage(event.target)) return;
+    this.beginPan(event);
+    event.stopPropagation();
+  };
+  private readonly onNativeMouseMove = (event: MouseEvent) => {
+    if (!this.pan && event.buttons & 4 && this.isInStage(event.target)) {
+      this.beginPan(event);
+    }
+    if (!this.pan) return;
+    this.updatePan(event);
+    event.preventDefault();
+  };
+  private readonly onNativeMouseUp = (event: MouseEvent) => {
+    if (!this.pan || event.button !== 1) return;
+    this.endPan(event);
+    event.preventDefault();
+  };
+  private readonly onNativeAuxClick = (event: MouseEvent) => {
+    if (event.button === 1) event.preventDefault();
+  };
 
   constructor() {
     effect(() => {
@@ -63,10 +110,17 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
     this.overlayLayer.add(this.transformer);
     this.stage.add(this.backgroundLayer, this.elementLayer, this.overlayLayer);
     this.stage.on('pointerdown', (event) => this.onPointerDown(event));
-    this.stage.on('pointermove', () => this.onPointerMove());
-    this.stage.on('pointerup', () => this.onPointerUp());
+    this.stage.on('pointermove', (event) => this.onPointerMove(event));
+    this.stage.on('pointerup', (event) => this.onPointerUp(event));
     this.stage.on('pointerleave', () => this.onPointerLeave());
     this.stage.on('dblclick dbltap', () => this.store.finishPolygon());
+    this.stage.container().addEventListener('pointerdown', this.onNativePointerDown, true);
+    this.stage.container().addEventListener('pointermove', this.onNativePointerMove, true);
+    window.addEventListener('pointerup', this.onNativePointerUp, true);
+    window.addEventListener('mousedown', this.onNativeMouseDown, true);
+    window.addEventListener('mousemove', this.onNativeMouseMove, true);
+    window.addEventListener('mouseup', this.onNativeMouseUp, true);
+    this.stage.container().addEventListener('auxclick', this.onNativeAuxClick);
     this.stage.container().addEventListener('wheel', (event) => this.onWheel(event), { passive: false });
     this.stage.container().addEventListener('contextmenu', (event) => this.onContextMenu(event));
     this.resizeObserver.observe(host);
@@ -75,6 +129,14 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.resizeObserver.disconnect();
+    const container = this.stage?.container();
+    container?.removeEventListener('pointerdown', this.onNativePointerDown, true);
+    container?.removeEventListener('pointermove', this.onNativePointerMove, true);
+    window.removeEventListener('pointerup', this.onNativePointerUp, true);
+    window.removeEventListener('mousedown', this.onNativeMouseDown, true);
+    window.removeEventListener('mousemove', this.onNativeMouseMove, true);
+    window.removeEventListener('mouseup', this.onNativeMouseUp, true);
+    container?.removeEventListener('auxclick', this.onNativeAuxClick);
     this.stage?.destroy();
   }
 
@@ -122,11 +184,10 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
 
   private applyViewport(): void {
     if (!this.stage || !this.world || !this.overlayWorld) return;
-    const background = this.store.background();
-    const fitScale = Math.min(this.stage.width() / background.width, this.stage.height() / background.height, 1);
-    const scale = this.store.zoom() === 'fit' ? fitScale : (this.store.zoom() as number);
-    const x = (this.stage.width() - background.width * scale) / 2;
-    const y = (this.stage.height() - background.height * scale) / 2;
+    const scale = this.getViewportScale();
+    const base = this.getCenteredViewportPosition(scale);
+    const x = base.x + this.viewportOffset.x;
+    const y = base.y + this.viewportOffset.y;
     for (const group of [this.world, this.overlayWorld]) {
       group.position({ x, y });
       group.scale({ x: scale, y: scale });
@@ -330,6 +391,10 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
 
   private onPointerDown(event: Konva.KonvaEventObject<PointerEvent>): void {
     if (!this.stage) return;
+    if (event.evt.button === 1) {
+      this.beginPan(event.evt);
+      return;
+    }
     const point = this.getCanvasPoint();
     if (!point) return;
     this.store.setCanvasPointer(point);
@@ -351,7 +416,11 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private onPointerMove(): void {
+  private onPointerMove(event: Konva.KonvaEventObject<PointerEvent>): void {
+    if (this.pan) {
+      this.updatePan(event.evt);
+      return;
+    }
     const point = this.getCanvasPoint();
     if (!point) return;
     this.store.setCanvasPointer(point);
@@ -363,7 +432,11 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private onPointerUp(): void {
+  private onPointerUp(event?: Konva.KonvaEventObject<PointerEvent>): void {
+    if (this.pan) {
+      this.endPan(event?.evt);
+      return;
+    }
     if (!this.draft) return;
     const hitArea = this.draftToHitArea(this.draft);
     this.draft = null;
@@ -372,18 +445,24 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
   }
 
   private onPointerLeave(): void {
+    if (this.pan) this.endPan();
     this.store.setHovered(null);
   }
 
   private onWheel(event: WheelEvent): void {
-    if (this.store.mode() !== 'simulate') return;
+    this.stage?.setPointersPositions(event);
     const point = this.getCanvasPoint();
     if (!point) return;
     const hit = this.findElementAt(point);
-    if (!hit || hit.type !== 'knob') return;
+    if (this.store.mode() === 'simulate' && hit?.type === 'knob') {
+      event.preventDefault();
+      this.store.setHovered(hit.id);
+      this.store.triggerElement(hit, event.deltaY < 0 ? 1 : -1);
+      return;
+    }
+    if (hit) return;
     event.preventDefault();
-    this.store.setHovered(hit.id);
-    this.store.triggerElement(hit, event.deltaY < 0 ? 1 : -1);
+    this.zoomAt(event, point);
   }
 
   private onContextMenu(event: MouseEvent): void {
@@ -394,6 +473,10 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
   }
 
   private onElementPointerDown(element: DeviceElement, event: Konva.KonvaEventObject<PointerEvent>): void {
+    if (event.evt.button === 1) {
+      this.beginPan(event.evt);
+      return;
+    }
     if (this.store.mode() === 'simulate') {
       const direction = element.type === 'knob' && event.evt.button === 0 ? -1 : 1;
       this.store.triggerElement(element, direction);
@@ -480,6 +563,91 @@ export class DeviceStageComponent implements AfterViewInit, OnDestroy {
     if (!pointer) return null;
     const transform = this.world.getAbsoluteTransform().copy().invert();
     return transform.point(pointer);
+  }
+
+  private beginPan(event: PointerEvent | MouseEvent): void {
+    if (!this.stage || this.pan) return;
+    event.preventDefault();
+    this.pan = {
+      pointerId: event instanceof PointerEvent ? event.pointerId : undefined,
+      startClient: { x: event.clientX, y: event.clientY },
+      startOffset: { ...this.viewportOffset },
+    };
+    this.stage.container().style.cursor = 'grabbing';
+    if (event instanceof PointerEvent) {
+      this.stage.setPointersPositions(event);
+      try {
+        this.stage.container().setPointerCapture(event.pointerId);
+      } catch {
+        // Some embedded browsers do not allow capture for middle-button pointers.
+      }
+    }
+  }
+
+  private updatePan(event: PointerEvent | MouseEvent): void {
+    if (!this.pan) return;
+    this.viewportOffset = {
+      x: this.pan.startOffset.x + event.clientX - this.pan.startClient.x,
+      y: this.pan.startOffset.y + event.clientY - this.pan.startClient.y,
+    };
+    this.renderAll();
+  }
+
+  private endPan(event?: PointerEvent | MouseEvent): void {
+    if (!this.stage || !this.pan) return;
+    const pointerId = event instanceof PointerEvent ? event.pointerId : this.pan.pointerId;
+    const container = this.stage.container();
+    if (pointerId !== undefined && container.hasPointerCapture(pointerId)) {
+      container.releasePointerCapture(pointerId);
+    }
+    container.style.cursor = '';
+    this.pan = null;
+  }
+
+  private isInStage(target: EventTarget | null): boolean {
+    return target instanceof Node && Boolean(this.stage?.container().contains(target));
+  }
+
+  private zoomAt(event: WheelEvent, canvasPoint: Point): void {
+    if (!this.stage) return;
+    const stagePoint = this.getStagePoint(event);
+    if (!stagePoint) return;
+    const currentScale = this.getViewportScale();
+    const zoomFactor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const nextScale = Math.min(4, Math.max(0.2, currentScale * zoomFactor));
+    const base = this.getCenteredViewportPosition(nextScale);
+    this.viewportOffset = {
+      x: stagePoint.x - base.x - canvasPoint.x * nextScale,
+      y: stagePoint.y - base.y - canvasPoint.y * nextScale,
+    };
+    this.store.setZoom(Number(nextScale.toFixed(3)));
+    this.renderAll();
+  }
+
+  private getStagePoint(event: MouseEvent | PointerEvent | WheelEvent): Point | null {
+    if (!this.stage) return null;
+    const rect = this.stage.container().getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  }
+
+  private getViewportScale(): number {
+    const zoom = this.store.zoom();
+    if (zoom !== 'fit') return zoom;
+    const background = this.store.background();
+    if (!this.stage) return 1;
+    return Math.min(this.stage.width() / background.width, this.stage.height() / background.height, 1);
+  }
+
+  private getCenteredViewportPosition(scale: number): Point {
+    const background = this.store.background();
+    if (!this.stage) return { x: 0, y: 0 };
+    return {
+      x: (this.stage.width() - background.width * scale) / 2,
+      y: (this.stage.height() - background.height * scale) / 2,
+    };
   }
 
   private worldTransform(): Konva.ContainerConfig {

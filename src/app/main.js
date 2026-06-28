@@ -75,6 +75,7 @@ const state = {
   draft: null,
   drag: null,
   resize: null,
+  pan: null,
   polygonDraft: null,
   nextElementNumber: 1,
   session: {
@@ -227,6 +228,10 @@ function setMode(mode) {
 
 function onPointerDown(event) {
   event.preventDefault();
+  if (event.button === 1) {
+    beginCanvasPan(event);
+    return;
+  }
   const point = getCanvasPoint(event);
   state.lastCanvasPoint = point;
   const hit = findElementAt(point);
@@ -284,6 +289,11 @@ function onPointerDown(event) {
 
 function onPointerMove(event) {
   event.preventDefault();
+  if (state.pan) {
+    canvasHost.scrollLeft = state.pan.scrollLeft + state.pan.clientX - event.clientX;
+    canvasHost.scrollTop = state.pan.scrollTop + state.pan.clientY - event.clientY;
+    return;
+  }
   const point = getCanvasPoint(event);
   state.lastCanvasPoint = point;
   const hit = findElementAt(point);
@@ -316,6 +326,12 @@ function onPointerMove(event) {
 
 function onPointerUp(event) {
   event.preventDefault();
+  if (state.pan) {
+    state.pan = null;
+    canvas.style.cursor = "";
+    releasePointer(event);
+    return;
+  }
   if (event.type === "pointerleave") {
     state.hoveredId = null;
   }
@@ -349,13 +365,17 @@ function onPointerUp(event) {
 }
 
 function onCanvasWheel(event) {
-  if (state.mode !== "simulate") return;
   const hit = findElementAt(getCanvasPoint(event));
-  if (!hit || hit.type !== "knob") return;
+  if (state.mode === "simulate" && hit?.type === "knob") {
+    event.preventDefault();
+    state.hoveredId = hit.id;
+    triggerElement(hit, { direction: event.deltaY < 0 ? 1 : -1 });
+    return;
+  }
+  if (hit) return;
 
   event.preventDefault();
-  state.hoveredId = hit.id;
-  triggerElement(hit, { direction: event.deltaY < 0 ? 1 : -1 });
+  zoomCanvasAt(event);
 }
 
 function onCanvasContextMenu(event) {
@@ -1886,6 +1906,31 @@ function updateCanvasScale() {
   canvas.style.height = "auto";
   zoomFitButton.classList.remove("is-active");
   zoomActualButton.classList.toggle("is-active", state.zoom === 1);
+}
+
+function beginCanvasPan(event) {
+  state.pan = {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    scrollLeft: canvasHost.scrollLeft,
+    scrollTop: canvasHost.scrollTop,
+  };
+  canvas.style.cursor = "grabbing";
+  canvas.setPointerCapture(event.pointerId);
+}
+
+function zoomCanvasAt(event) {
+  const point = getCanvasPoint(event);
+  const currentScale = canvas.getBoundingClientRect().width / canvas.width;
+  const zoomFactor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const nextScale = Math.min(4, Math.max(0.2, currentScale * zoomFactor));
+  setZoom(Number(nextScale.toFixed(3)));
+
+  const hostRect = canvasHost.getBoundingClientRect();
+  const canvasOffsetLeft = canvas.offsetLeft;
+  const canvasOffsetTop = canvas.offsetTop;
+  canvasHost.scrollLeft = canvasOffsetLeft + point.x * nextScale - (event.clientX - hostRect.left);
+  canvasHost.scrollTop = canvasOffsetTop + point.y * nextScale - (event.clientY - hostRect.top);
 }
 
 function onKeyDown(event) {
