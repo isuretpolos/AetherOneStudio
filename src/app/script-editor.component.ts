@@ -48,8 +48,8 @@ interface MonacoEditor {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       min-height: 0;
-      border-top: 1px solid #383f48;
-      background: #11151a;
+      border-top: 1px solid #26303a;
+      background: #0b1016;
     }
 
     .script-header {
@@ -57,19 +57,22 @@ interface MonacoEditor {
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 10px 14px;
-      border-bottom: 1px solid #383f48;
-      background: #16191d;
+      min-height: 36px;
+      padding: 8px 14px;
+      border-bottom: 1px solid #26303a;
+      background: linear-gradient(180deg, #111821, #0d131a);
     }
 
     h2,
     span {
       margin: 0;
-      color: #98a4ad;
+      color: #9aa6b2;
       font-size: 12px;
     }
 
     h2 {
+      font-weight: 700;
+      letter-spacing: 0;
       text-transform: uppercase;
     }
 
@@ -85,8 +88,8 @@ interface MonacoEditor {
     .fallback-editor {
       border: 0;
       padding: 12px 14px;
-      background: #0d1116;
-      color: #eef2f4;
+      background: #0a0f15;
+      color: #e6ebef;
       font: 13px/1.45 Consolas, 'Cascadia Code', 'Courier New', monospace;
       resize: none;
       outline: none;
